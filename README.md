@@ -107,6 +107,14 @@ This is the part where we don't hand-wave. Every formula below is copy-pasted lo
 1. **Lexical pass** — regex word-boundary match against each CWE entry's keyword list (e.g. CWE-89/SQL-Injection has keywords like `sql`, `mysql`, `query`, `cursor`, `table`). High precision: if your prompt says "table" and "login," that's a real signal.
 2. **Semantic pass** — TF-IDF cosine similarity between your prompt and each CWE's knowledge-base document, so a prompt that *describes* a risky task without using the trigger words still gets caught (recall).
 
+> **Plain-English version, no math required:** think of Engine A as a detective holding your prompt next to 46 "wanted posters" (one per CWE), each covered in distinctive clues (keywords + a description). Two ways a poster can match:
+> - **The obvious way (lexical):** your prompt literally says a clue word from the poster — "table," "password," "login." Case closed, that's a strong hit.
+> - **The vibe-based way (semantic):** your prompt never says the clue words, but *talks about the same kind of thing* the poster describes — e.g. "check if this username and password are correct" without ever saying "SQL" or "table." A word-search would miss this; TF-IDF + cosine catches it because it compares the *pattern* of important words, not exact matches.
+>
+> "TF-IDF" itself is just a way of scoring how *telling* a word is. "The" appears in every sentence ever, so it tells you nothing — low score. "Bcrypt" appears almost nowhere except crypto-related text, so if it shows up, it's a strong clue — high score. TF-IDF = (how often this word shows up here) × (how rare it is everywhere else). "Cosine similarity" is then just "how similar are two lists of these clue-scores" — same idea as measuring how close two compass directions are, 1.0 = pointing the exact same way, 0 = pointing nowhere near each other.
+>
+> **Why this helps us catch our own screwups:** if you ever see Engine A miss an obviously-SQL prompt, the fix is almost always "the KB entry's keyword list doesn't have that word" (lexical gap) rather than "the math is broken" — worth knowing before you go debugging cosine formulas for a keyword-list problem.
+
 The TF-IDF math, exactly as implemented:
 
 ```
@@ -123,6 +131,12 @@ score = 0
 if lexical hit:      score += 1.0 + 0.05 × (n_distinct_keywords − 1)
 if cosine ≥ 0.12 (or there was a lexical hit): score += 0.8 × cosine
 ```
+
+(In words: a literal keyword match is worth a flat 1.0 — almost always enough on its own to
+qualify — plus a small bonus if several *different* keywords hit. A "vibe" match on its own
+needs to clear a minimum similarity bar (0.12) before it counts at all, and even then it's
+weighted lower (×0.8) than a literal hit, because "sounds similar" is less trustworthy than
+"said the actual word.")
 
 The **top 5** CWEs with `score > 0` get their warnings injected into the prompt, formatted as:
 
@@ -183,22 +197,50 @@ Outcomes: `pass` / `fail` (secure-but-broken candidate) / `no_tests` (prompt was
 
 ## The research questions & the exact formulas we score ourselves on
 
-Every rate below gets a **Wilson 95% confidence interval**, never a bare percentage:
+### First, the two stats tools we lean on — in plain English
 
-```
-p = k / n
-center = (p + z²/2n) / (1 + z²/n)
-half   = (z / (1 + z²/n)) · sqrt( p(1−p)/n + z²/4n² )
-CI = [center − half, center + half]              (z = 1.96 for 95%)
-```
+**Wilson confidence interval — "how much should I trust this percentage?"**
 
-Paired mode comparisons (e.g. plain vs. enriched, same prompt+rep) use **exact McNemar's test** on the discordant pairs:
+> Say you flip a coin 5 times and get 3 heads. Technically that's "60% heads" — but you
+> wouldn't actually believe the coin is biased, right? 5 flips is nothing. Now flip it 500
+> times and get 300 heads: still 60%, but now you'd genuinely suspect something's up. Same
+> percentage, wildly different amount of trust — because trust depends on *how many times you
+> measured*, not just the percentage itself.
+>
+> A **confidence interval** is that intuition turned into a number: instead of just saying
+> "60% vulnerable," we say "60% vulnerable, and given our sample size, the true rate is
+> probably somewhere between 42% and 76%." Small sample → wide range (don't trust the
+> headline number much yet). Big sample → narrow range (trust it). This is the exact same
+> math behind the "margin of error" you see on election polls.
+>
+> The formula (Wilson's version, which stays well-behaved even with small samples or rates
+> near 0%/100%, unlike the naive "±1.96×std-error" version taught in intro stats):
+> ```
+> p = k / n
+> center = (p + z²/2n) / (1 + z²/n)
+> half   = (z / (1 + z²/n)) · sqrt( p(1−p)/n + z²/4n² )
+> CI = [center − half, center + half]              (z = 1.96 for 95% confidence)
+> ```
 
-```
-n = b + c                          (b = "enrichment fixed it", c = "enrichment broke it")
-k = min(b, c)
-p_value = min(1, 2 · Σ_{i=0}^{k} C(n,i) / 2ⁿ)
-```
+**McNemar's test — "did the *same* prompts actually change, or is this noise?"**
+
+> Imagine testing a diet: you weigh the same 50 people before and after, not two different
+> groups of 50. You only care about the people whose weight *changed* — 12 lost weight, 3
+> gained weight, and 35 stayed exactly the same. The 35 "no change" people tell you nothing
+> about whether the diet worked, so you ignore them and just ask: "are the 12 wins
+> significantly more than the 3 losses, or could that 12-vs-3 split just be random noise?"
+>
+> That's McNemar's test, exactly, applied to `plain` vs. `enriched` on the *same* prompt run
+> twice: `b` = "enrichment turned a vulnerable output clean" (a win), `c` = "enrichment turned
+> a clean output vulnerable" (a loss — yes, this can happen, and we report it if it does). We
+> ignore runs that didn't change either way, same as ignoring the 35 unchanged dieters.
+> ```
+> n = b + c
+> k = min(b, c)
+> p_value = min(1, 2 · Σ_{i=0}^{k} C(n,i) / 2ⁿ)          (p < 0.05 ⇒ probably a real effect)
+> ```
+
+### The five questions
 
 | RQ | Question | Formula | Hypothesis | Tested against |
 |---|---|---|---|---|
@@ -209,6 +251,31 @@ p_value = min(1, 2 · Σ_{i=0}^{k} C(n,i) / 2ⁿ)
 | **RQ5** — repair inflation (the headline) | How often is a "successfully repaired" run secretly broken? | `RIR = P(functional test FAILS given scanner says clean after repair)` | RIR ≥ 15% | CODEGUARD+ / CodeSecEval's secure-pass@k lens — **no prior work measures this inside a live scanner-feedback loop; this is our sharpest claim** |
 
 All five formulas are implemented verbatim in `backend/metrics.py` and shown live, next to the real numbers, in the dashboard's Research Questions tab — nobody hand-types a number into the paper.
+
+### "Does it or doesn't it" — reading a result without second-guessing yourself
+
+The hypotheses above say what we *expect*. This table says, decided in advance (so we can't
+quietly nudge it after seeing the data), **what actual number counts as yes, no, or "too
+early to say."** Full version with the reasoning behind each band lives in
+`docs/01_RESEARCH_QUESTIONS.md` — this is the cheat-sheet.
+
+⚠️ **Rule zero:** if a rate comes from fewer than 5 runs, `metrics.py` marks it `insufficient`
+— that's not a verdict yet, it's noise wearing a percentage sign. Wait for more reps.
+
+| RQ | 🟢 Yes | 🟡 Partial / mixed | 🔴 No |
+|---|---|---|---|
+| RQ1 (gap) | gap ≥ 20pp, ordering G1≥G2≥G3 holds | 10–20pp gap | <10pp, or the order's scrambled — a real finding, not an error |
+| RQ2 (enrichment) | ΔE(G1) ≥ 15pp **and** p<0.05 | positive but under 15pp, or significant for only some models | ΔE(G3) < 5pp — expected, this *is* "yes" for the obsolescence half of H2 |
+| RQ3 (repair speed) | CR(G3)−CR(G1) ≥ 15pp **and** IT(G3) < IT(G1) | CR/IT roughly flat across generations | CR(G1) > CR(G3) — a reversal, dig into why before writing a headline |
+| RQ4 (residual risk) | RVR < 10% — essentially solved | 10–30% — partially mitigated | ≥ 30% — a real unsolved category, this is the practitioner payoff, don't undersell a red cell |
+| RQ5 (repair inflation) | RIR ≥ 15% — H5 confirmed | 5–15% — real but not dramatic | RIR < 5% — repair claims are trustworthy here |
+
+Two things worth internalizing before anyone runs the numbers for real: **read every band per
+model or per category, never pooled first** (a fine-looking G3 average can hide one bad model
+or one red CWE category — RQ4 exists specifically to surface that). And **🔴 is a real,
+publishable answer** — if RQ1–RQ3 all land red, that's evidence the "scaffolding is obsolete"
+story is *wrong*, which is just as citable as if it were right. Don't let the table quietly
+pressure a borderline result toward green.
 
 ## The dataset
 

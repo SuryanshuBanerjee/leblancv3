@@ -67,6 +67,36 @@ correctness is not checked?
 
 ---
 
+## How to read a result — decision bands (added 2026-09-01)
+
+The hypotheses above say what we *expect*; this section says, in advance, what number
+would make us say **"yes,"** **"no,"** or **"mixed / not enough data yet."** Written before
+we've looked at the full dataset, on purpose — deciding the bands after seeing the numbers
+would be p-hacking with extra steps. If a real result falls outside every band below, report
+it as a surprise and describe it plainly; don't force it into the nearest bucket.
+
+**First check, always:** `metrics.py` flags any rate computed from fewer than `MIN_N = 5`
+runs as `insufficient`. A band verdict on an insufficient cell isn't a real verdict — it's
+noise with a percentage sign on it. Wait for more reps before reading anything into it.
+
+| RQ | Metric | 🟢 "Yes" | 🟡 "Partial / mixed" | 🔴 "No" |
+|---|---|---|---|---|
+| RQ1 | VR(G1) − VR(G3), gap in the ordered rates | gap ≥ 20pp **and** VR(G1) ≥ VR(G2) ≥ VR(G3) holds | gap is 10–20pp, or the ordering is roughly right but noisy | gap < 10pp, or the ordering is scrambled (e.g. G3 *more* vulnerable than G1 on some slice) — itself a finding, not a failure |
+| RQ2 | ΔE(model), paired plain vs. enriched | ΔE(G1) ≥ 15pp **and** McNemar p < 0.05 | ΔE is positive and significant but under 15pp, or significant for only some G1/G2 models | ΔE(G3) < 5pp — this half is expected and *is* "yes" for the obsolescence half of H2, not a failure |
+| | | | **watch for:** ΔE clearly negative (enrichment made things worse) — flag by name, never average it away | |
+| RQ3 | CR(model), IT(model) | CR(G3) − CR(G1) ≥ 15pp **and** IT(G3) < IT(G1) | CR/IT roughly flat across generations — repair effectiveness turns out generation-agnostic, a real and reportable result | CR(G1) > CR(G3) (a reversal) — don't smooth this over, dig into *why* before writing a headline |
+| | Non-convergence rate | < 15% for a model | 15–30% | > 30% — report prominently, this is a real limitation of the repair loop for that model, not noise |
+| RQ4 | RVR(category, G3) | < 10% — "essentially solved" for current models | 10–30% — partially mitigated, scaffolding narrows it but doesn't close it | ≥ 30% — still a real, unsolved risk category; this is the paper's practitioner-guidance payoff, so don't undersell a red cell |
+| RQ5 | RIR(model) | ≥ 15% — H5 confirmed, naive "repair succeeded" claims (including prior work's) meaningfully overstate reality | 5–15% — inflation is real and worth a sentence, but not dramatic enough alone to indict naive metrics broadly | < 5% — repair claims are basically trustworthy for this model; the "security theater" concern doesn't apply here |
+
+Two rules for using this table honestly:
+1. **A band is read per model / per category, never pooled first.** "G3 overall looks fine" can
+   hide one G3 model or one CWE category sitting in the red band — RQ4's whole point is that
+   the residual risk is exactly where the average stops being useful.
+2. **"No" is a real, publishable answer.** If RQ1–RQ3 land in 🔴 across the board, that's not a
+   failed experiment — it's evidence the scaffolding-obsolescence story is *wrong*, which is
+   just as citable as if it were right. Don't let the bands quietly pressure a result toward 🟢.
+
 ## Validity protocol (non-negotiable)
 
 1. **False-positive audit:** stratified 10% sample of all findings, independently labeled
