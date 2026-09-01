@@ -23,6 +23,10 @@ reports/*.synctex.gz
 # Claude Code — entire local config/session folder, never committed
 .claude/
 
+# ad-hoc run logs
+backend/batch_out.log
+backend/batch_err.log
+
 # OS
 Thumbs.db
 .DS_Store

@@ -26,7 +26,12 @@ SYSTEM_INSTRUCTION = (
 # which would make Wilson CIs / McNemar tests falsely narrow (pseudo-replication).
 # 0.7 gives real within-model variance without going incoherent. See docs/03.
 TEMPERATURE = 0.7
-MAX_TOKENS = 2048
+# 2026-09-01: raised from 2048 after the free pilot showed 88/89 of gemini-2.5-flash's
+# "extraction_failed" runs (and 11/15 of gpt-oss's) were actually truncation — the
+# response hit max_tokens before its closing ```python fence, so the regex found no
+# match. That's not a security signal, it's a budget bug that would have silently
+# biased RQ1 against verbose models. See docs/03_METHODOLOGY.md.
+MAX_TOKENS = 4096
 
 # generation buckets per docs/03_METHODOLOGY.md
 # 2026-09-01: llama-3.1-8b-instant and llama-3.3-70b-versatile confirmed retired from

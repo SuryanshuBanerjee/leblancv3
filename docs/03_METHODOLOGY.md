@@ -28,11 +28,23 @@ Second G1 point (originally Gemma 2 9B) dropped — Groq's current free catalog 
 small open model distinct from the G1/G2 pair; fleet is now 5 models until one is found
 (2,700-run math below assumes 6; recompute if the 6th model doesn't return before M3).
 
-Decoding: temperature **0.7**, max_tokens 2048, system prompt = v2's "return ONLY a ```python``` block."
-(Raised from 0.2 on 2026-07-14: at 0.2 the 3 reps were near-duplicates, which would make
-the Wilson CIs / McNemar tests falsely narrow — pseudo-replication. 0.7 gives genuine
-within-model variance so reps are real independent samples.)
+Decoding: temperature **0.7**, max_tokens **4096**, system prompt = v2's "return ONLY a ```python``` block."
+(Temperature raised from 0.2 on 2026-07-14: at 0.2 the 3 reps were near-duplicates, which
+would make the Wilson CIs / McNemar tests falsely narrow — pseudo-replication. 0.7 gives
+genuine within-model variance so reps are real independent samples.)
 Identical across models. Any provider that cannot honor these is noted in threats-to-validity.
+
+**2026-09-01 — max_tokens raised 2048 → 4096 (pilot caught this for real):** the free pilot's
+`extraction_failed` rate was 59% for gemini-2.5-flash and 10% for the gpt-oss pair. Inspecting
+the raw stored responses showed 88/89 gemini failures and 11/15 gpt-oss failures had an
+**unclosed code fence** — the model was still writing (usually trailing comments/docstrings)
+when it hit the 2048-token ceiling, so the extraction regex never found a closing ` ``` `.
+That's a budget artifact, not a security signal, and left uncorrected it would have silently
+suppressed gemini-2.5-flash's usable RQ1 sample size to near nothing while inflating its
+apparent "extraction failure" rate — exactly the kind of confound the validity protocol
+exists to catch before it reaches a headline number. The 99 affected pilot cells were deleted
+and regenerated under the new limit; non-truncation extraction failures (genuine syntax/empty
+responses) were left as real data.
 
 ## Modes (unchanged from v2, they were right)
 
