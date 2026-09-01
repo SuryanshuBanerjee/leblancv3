@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LeBlanc v3</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d333b;
+    --text:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --good:#3fb950;
+    --warn:#d29922; --bad:#f85149; --purple:#bc8cff;
+    --g1:#f85149; --g2:#d29922; --g3:#3fb950;
+  }
+  *{box-sizing:border-box; margin:0}
+  body{background:var(--bg); color:var(--text); font:15px/1.55 system-ui,Segoe UI,sans-serif}
+  a{color:var(--accent)}
+  header{padding:18px 28px; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:16px; flex-wrap:wrap}
+  header h1{font-size:22px} header .sub{color:var(--dim); font-size:13px; max-width:700px}
+  nav{display:flex; gap:4px; padding:10px 24px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:5; flex-wrap:wrap}
+  nav button{background:none; border:1px solid transparent; color:var(--dim); padding:7px 14px; border-radius:8px; cursor:pointer; font-size:14px}
+  nav button.active{color:var(--text); background:var(--panel); border-color:var(--border)}
+  main{padding:24px; max-width:1200px; margin:0 auto}
+  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:18px}
+  .card h2{font-size:17px; margin-bottom:6px}
+  .card h3{font-size:14px; color:var(--dim); margin:14px 0 6px}
+  .formula{font-family:ui-monospace,Consolas,monospace; font-size:13px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin:8px 0; color:var(--purple); overflow-x:auto}
+  .read{font-size:13.5px; color:var(--dim); border-left:3px solid var(--accent); padding:2px 10px; margin:8px 0}
+  .pill{display:inline-block; font-size:12px; padding:2px 10px; border-radius:999px; border:1px solid var(--border); margin:2px; color:var(--dim)}
+  .pill.ok{color:var(--good); border-color:var(--good)}
+  .pill.no{color:var(--bad); border-color:var(--bad)}
+  .pill.g1{color:var(--g1); border-color:var(--g1)} .pill.g2{color:var(--g2); border-color:var(--g2)} .pill.g3{color:var(--g3); border-color:var(--g3)}
+  .notice{background:#1c2128; border:1px dashed var(--warn); color:var(--warn); border-radius:8px; padding:10px 14px; font-size:13.5px; margin:10px 0}
+  table{width:100%; border-collapse:collapse; font-size:13.5px}
+  th,td{text-align:left; padding:7px 10px; border-bottom:1px solid var(--border)}
+  th{color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em}
+  tr.click{cursor:pointer} tr.click:hover{background:var(--panel2)}
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .flow{display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:14px 0}
+  .stage{flex:1; min-width:150px; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px; margin:4px; text-align:center}
+  .stage b{display:block; margin-bottom:4px; color:var(--accent)} .stage span{font-size:12.5px; color:var(--dim)}
+  .arrow{align-self:center; color:var(--dim); font-size:20px; padding:0 2px}
+  select,textarea,button.action{background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px}
+  textarea{width:100%; min-height:110px; font-family:ui-monospace,Consolas,monospace}
+  button.action{cursor:pointer} button.action:hover{border-color:var(--accent)}
+  button.action.spend{border-color:var(--warn); color:var(--warn)}
+  .chartbox{position:relative; height:280px; margin-top:10px}
+  .badge{font-size:12px; padding:2px 8px; border-radius:6px}
+  .s-clean,.s-pass{background:#12261e; color:var(--good)} .s-vulnerable,.s-not_converged,.s-fail{background:#2d1a1b; color:var(--bad)}
+  .s-llm_error,.s-extraction_failed,.s-timeout,.s-harness_error{background:#2b2416; color:var(--warn)}
+  .heat{display:grid; gap:4px; margin-top:12px}
+  .heatcell{border-radius:6px; padding:10px 6px; text-align:center; font-size:12.5px; border:1px solid var(--border)}
+  #modal{position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:flex-start; justify-content:center; padding:40px; z-index:20; overflow:auto}
+  #modal .inner{background:var(--panel); border:1px solid var(--border); border-radius:12px; max-width:1500px; width:100%; padding:22px}
+  pre{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12.5px; overflow-x:auto; white-space:pre-wrap}
+  .kv{display:flex; gap:24px; flex-wrap:wrap; margin:10px 0}
+  .kv div b{display:block; font-size:20px} .kv div span{font-size:12px; color:var(--dim)}
+
+  /* ---- stage-by-stage pipeline viewer ---- */
+  .stagegrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; margin:14px 0}
+  .stagecard{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:0; overflow:hidden; display:flex; flex-direction:column}
+  .stagecard .stagehead{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); background:rgba(255,255,255,.02)}
+  .stagecard .stagehead b{font-size:13px} .stagecard .stagehead .note{font-size:11.5px; color:var(--dim)}
+  .stagecard .codebox{max-height:340px; overflow:auto; font-family:ui-monospace,Consolas,monospace; font-size:12px}
+  .codeline{display:flex; padding:0 8px; white-space:pre-wrap; word-break:break-all}
+  .codeline .ln{flex:0 0 34px; text-align:right; margin-right:10px; color:#4b535d; user-select:none}
+  .codeline .lc{flex:1}
+  .codeline.flag-high{background:rgba(248,81,73,.16); border-left:3px solid var(--bad)}
+  .codeline.flag-med{background:rgba(210,153,34,.14); border-left:3px solid var(--warn)}
+  .flagmark{color:var(--bad); font-size:10.5px; margin-left:8px; white-space:nowrap}
+  .flag-med .flagmark{color:var(--warn)}
+  .stagecard.empty .codebox{padding:14px; color:var(--dim); font-size:12.5px; font-style:italic}
+  .cwechips{display:flex; flex-wrap:wrap; gap:4px; margin:6px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>LeBlanc <span style="color:var(--accent)">v3</span></h1>
+  <div class="sub" id="thesis">…</div>
+</header>
+<nav id="nav">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="research">Research Questions</button>
+  <button data-tab="lab">Lab</button>
+  <button data-tab="history">Run History</button>
+  <button data-tab="dataset">Dataset</button>
+</nav>
+<main>
+  <!-- ============ OVERVIEW ============ -->
+  <section id="tab-overview">
+    <div class="card">
+      <h2>What is this project? (60-second version)</h2>
+      <p>When you ask an AI to write code, the code often works but contains security holes.
+      LeBlanc wraps any AI model in a safety loop and <b>measures whether that loop is still worth
+      anything now that models have improved</b> — and catches the loop lying (code that passes the
+      security scanner but no longer works).</p>
+      <div class="flow">
+        <div class="stage"><b>Engine A</b><span>Reads your request, detects risky topics via lexical + TF-IDF retrieval over a CWE corpus, injects warnings</span></div>
+        <div class="arrow">→</div>
+        <div class="stage"><b>LLM</b><span>Generates the code (6 models, 3 generations: <span class="pill g1">G1 old</span> <span class="pill g2">G2 mid</span> <span class="pill g3">G3 current</span>)</span></div>
+        <div class="arrow">→</div>
+        <div class="stage"><b>Engine B</b><span>Two independent security scanners (Bandit ∪ Semgrep) inspect the code</span></div>
+        <div class="arrow">→</div>
+        <div class="stage"><b>Engine C</b><span>Findings go back to the model: “fix these” — up to 3 rounds</span></div>
+        <div class="arrow">→</div>
+        <div class="stage"><b>Engine D</b><span>Functional tests check the “fixed” code still actually works</span></div>
+      </div>
+      <p style="color:var(--dim); font-size:13.5px">Three modes are compared per prompt: <b>plain</b> (no help),
+      <b>enriched</b> (Engine A only), <b>enriched_repair</b> (full loop). Differences between modes across
+      model generations = the research result.</p>
+    </div>
+    <div class="grid2">
+      <div class="card"><h2>Fleet status</h2><div id="fleet">…</div>
+        <h3>Experiment progress</h3><div class="kv" id="progress"></div></div>
+      <div class="card"><h2>The five questions we answer</h2>
+        <ol style="padding-left:18px; font-size:14px" id="rqlist">
+          <li><b>RQ1</b> — How insecure is each model generation out of the box?</li>
+          <li><b>RQ2</b> — Does warning the model up-front (enrichment) still help?</li>
+          <li><b>RQ3</b> — Does the repair loop converge, and how fast?</li>
+          <li><b>RQ4</b> — Which vulnerability types <i>still</i> survive everything, in 2026 models?</li>
+          <li><b>RQ5</b> — <span style="color:var(--purple)">How often is “successfully repaired” code secretly broken?</span> (headline)</li>
+        </ol>
+        <p style="font-size:13px; color:var(--dim); margin-top:8px">Full definitions with hypotheses &amp; statistics live in
+        <code>docs/01_RESEARCH_QUESTIONS.md</code> — the Research tab shows each formula next to its live numbers.</p></div>
+    </div>
+  </section>
+
+  <!-- ============ RESEARCH ============ -->
+  <section id="tab-research" hidden>
+    <div id="rq-container">Loading metrics…</div>
+  </section>
+
+  <!-- ============ LAB ============ -->
+  <section id="tab-lab" hidden>
+    <div class="card">
+      <h2>Engine A playground <span class="pill ok">free — no API calls</span></h2>
+      <p style="font-size:13.5px;color:var(--dim)">Type any coding request. Watch the retrieval algorithm decide which CWE warnings to inject, with its evidence (keyword hits + cosine similarity).</p>
+      <textarea id="lab-prompt" placeholder="e.g. Write a Flask endpoint that lets a user download a file by name"></textarea>
+      <div style="margin-top:10px"><button class="action" onclick="labEnrich()">Analyze prompt</button></div>
+      <div id="lab-enrich-out"></div>
+    </div>
+    <div class="card">
+      <h2>Single pipeline run <span class="pill no">spends 1–4 API calls</span></h2>
+      <p style="font-size:13.5px;color:var(--dim)">Runs one prompt through the full loop on one model. This is the only way the web UI can spend tokens — batch experiments are CLI-only (<code>run_batch.py</code>) with a cost gate.</p>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
+        <select id="run-prompt"></select>
+        <select id="run-model"></select>
+        <select id="run-mode">
+          <option>plain</option><option>enriched</option><option selected>enriched_repair</option>
+        </select>
+        <button class="action spend" onclick="labRun(this)">Run pipeline</button>
+      </div>
+      <div id="lab-run-out"></div>
+    </div>
+  </section>
+
+  <!-- ============ HISTORY ============ -->
+  <section id="tab-history" hidden>
+    <div class="card">
+      <h2>All recorded runs</h2>
+      <p style="font-size:13px;color:var(--dim)">Every row is one (prompt × model × mode × repetition). Click a row for the full record including repair iterations and code.</p>
+      <div style="overflow-x:auto"><table id="hist-table"><thead><tr>
+        <th>id</th><th>prompt</th><th>model</th><th>gen</th><th>mode</th><th>rep</th>
+        <th>vulns</th><th>status</th><th>func test</th><th>iters</th><th>scanners</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ============ DATASET ============ -->
+  <section id="tab-dataset" hidden>
+    <div class="card">
+      <h2>The 50 prompts</h2>
+      <p style="font-size:13px;color:var(--dim)">L### = original realistic scenarios · S### = SecurityEval benchmark (provenance = exact source file). Every prompt is unique — duplication is a v2 sin we don't repeat.</p>
+      <div style="overflow-x:auto"><table id="ds-table"><thead><tr>
+        <th>id</th><th>category</th><th>target CWEs</th><th>source</th><th>prompt (start)</th>
+      </tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+
+<div id="modal" onclick="if(event.target===this)this.style.display='none'"><div class="inner" id="modal-body"></div></div>
+
+<script>
+const $=q=>document.querySelector(q);
+const api=p=>fetch(p).then(r=>r.json());
+let META=null, CHARTS=[];
+
+/* ---------- nav ---------- */
+document.getElementById('nav').addEventListener('click',e=>{
+  if(!e.target.dataset.tab) return;
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b===e.target));
+  document.querySelectorAll('main > section').forEach(s=>s.hidden = s.id!=='tab-'+e.target.dataset.tab);
+  if(e.target.dataset.tab==='research') loadResearch();
+  if(e.target.dataset.tab==='history') loadHistory();
+  if(e.target.dataset.tab==='dataset') loadDataset();
+});
+
+/* ---------- overview ---------- */
+async function loadMeta(){
+  META=await api('/api/meta');
+  $('#thesis').textContent=META.thesis;
+  $('#fleet').innerHTML=Object.entries(META.models).map(([m,i])=>
+    `<span class="pill ${i.gen.toLowerCase()}">${i.gen}</span> <b>${m}</b>
+     <span class="pill ${i.key_set?'ok':'no'}">${i.key_set?'key set':'no key'}</span> <span class="pill">${i.provider}</span><br>`).join('');
+  const met=await api('/api/metrics');
+  const s=met.summary;
+  $('#progress').innerHTML=`
+    <div><b>${s.total_runs}</b><span>runs recorded</span></div>
+    <div><b>${s.completeness_pct}%</b><span>of ${s.planned_cells}</span></div>
+    <div><b>${s.dual_scanner_runs}</b><span>dual-scanner runs</span></div>`;
+  const sel=$('#run-model');
+  sel.innerHTML=Object.keys(META.models).map(m=>`<option>${m}</option>`).join('');
+  const ds=await api('/api/prompts');
+  $('#run-prompt').innerHTML=ds.map(p=>`<option value="${p.id}">${p.id} — ${p.category}</option>`).join('');
+}
+loadMeta();
+
+/* ---------- research ---------- */
+function rqCard(rq,id){
+  let html=`<div class="card"><h2>${rq.question}</h2>
+    <div class="formula">${rq.formula}</div>
+    <div class="read">${rq.how_to_read}</div>`;
+  if(rq.insufficient) html+=`<div class="notice">Not enough data yet — ${rq.note||'run the experiment (run_batch.py)'}. Numbers below (if any) are previews, not results.</div>`;
+  html+=`<div id="${id}-body"></div></div>`;
+  return html;
+}
+async function loadResearch(){
+  const m=await api('/api/metrics');
+  CHARTS.forEach(c=>c.destroy()); CHARTS=[];
+  const c=$('#rq-container');
+  c.innerHTML=['rq1','rq2','rq3','rq4','rq5'].map(k=>rqCard(m[k],k)).join('');
+  renderRQ1(m.rq1); renderRQ2(m.rq2); renderRQ3(m.rq3); renderRQ4(m.rq4); renderRQ5(m.rq5);
+}
+const GENC={G1:'#f85149',G2:'#d29922',G3:'#3fb950','?':'#8b949e'};
+function bar(el,labels,data,colors,ylabel,extra={}){
+  const ctx=document.createElement('canvas');
+  const box=document.createElement('div'); box.className='chartbox'; box.appendChild(ctx); el.appendChild(box);
+  CHARTS.push(new Chart(ctx,{type:'bar',
+    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:6}]},
+    options:{plugins:{legend:{display:false}},maintainAspectRatio:false,
+      scales:{y:{beginAtZero:true,max:extra.max??100,title:{display:true,text:ylabel},grid:{color:'#2d333b'}},x:{grid:{display:false}}}}}));
+}
+function modelTable(per,cols){
+  let h='<div style="overflow-x:auto"><table><thead><tr><th>model</th><th>gen</th>'+cols.map(c=>`<th>${c[1]}</th>`).join('')+'</tr></thead><tbody>';
+  for(const [m,v] of Object.entries(per)){
+    h+=`<tr><td>${m}</td><td><span class="pill ${v.gen.toLowerCase()}">${v.gen}</span></td>`+
+       cols.map(c=>{let x=v[c[0]]; if(x===null||x===undefined)x='—'; if(Array.isArray(x))x=x.map(y=>y??'—').join('–'); return `<td>${x}${v.insufficient?' <span class="pill">low n</span>':''}</td>`}).join('')+'</tr>';
+  }
+  return h+'</tbody></table></div>';
+}
+function renderRQ1(rq){const el=$('#rq1-body'); if(!el)return;
+  el.innerHTML=modelTable(rq.per_model,[['n','n'],['vulnerable','vulnerable'],['rate','VR %'],['ci','95% CI']]);
+  const ms=Object.entries(rq.per_model).filter(([,v])=>v.rate!==null);
+  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.rate),ms.map(([,v])=>GENC[v.gen]),'vulnerability rate % (plain)');
+}
+function renderRQ2(rq){const el=$('#rq2-body'); if(!el)return;
+  el.innerHTML=modelTable(rq.per_model,[['paired_n','pairs'],['vr_plain','VR plain %'],['vr_enriched','VR enriched %'],['delta_pp','ΔE (pp)'],['mcnemar_p','McNemar p']]);
+  const ms=Object.entries(rq.per_model).filter(([,v])=>v.delta_pp!==null);
+  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.delta_pp),ms.map(([,v])=>GENC[v.gen]),'ΔE percentage points (higher = enrichment helps)',{max:undefined});
+}
+function renderRQ3(rq){const el=$('#rq3-body'); if(!el)return;
+  el.innerHTML=modelTable(rq.per_model,[['initially_vulnerable','vulnerable starts'],['converged','converged'],['convergence_rate','CR %'],['avg_iterations','avg iters']]);
+  const ms=Object.entries(rq.per_model).filter(([,v])=>v.convergence_rate!==null);
+  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.convergence_rate),ms.map(([,v])=>GENC[v.gen]),'convergence rate %');
+}
+function renderRQ4(rq){const el=$('#rq4-body'); if(!el)return;
+  if(!rq.categories.length){el.innerHTML='';return;}
+  const gens=rq.generations;
+  let h=`<div class="heat" style="grid-template-columns:140px repeat(${gens.length},1fr)">`;
+  h+=`<div></div>`+gens.map(g=>`<div class="heatcell" style="border:none;color:${GENC[g]}"><b>${g}</b></div>`).join('');
+  for(const cat of rq.categories){
+    h+=`<div class="heatcell" style="border:none;text-align:right">${cat}</div>`;
+    for(const g of gens){
+      const c=rq.grid[cat][g], r=c.rate;
+      const bg = r===null? 'var(--panel2)' : `rgba(248,81,73,${Math.max(.08,r/100*.85)})`;
+      h+=`<div class="heatcell" style="background:${bg}">${r===null?'—':r+'%'}<br><span style="color:var(--dim)">n=${c.n}</span></div>`;
+    }
+  }
+  el.innerHTML=h+'</div><p style="font-size:12.5px;color:var(--dim);margin-top:8px">Redder = more residual vulnerability after the FULL loop. The G3 column is the paper’s payoff.</p>';
+}
+function renderRQ5(rq){const el=$('#rq5-body'); if(!el)return;
+  el.innerHTML=modelTable(rq.per_model,[['repair_success_claims','“repaired” claims'],['functionally_tested','tested'],['secretly_broken','broken'],['repair_inflation_rate','RIR %'],['awaiting_tests','awaiting tests']]);
+  const ms=Object.entries(rq.per_model).filter(([,v])=>v.repair_inflation_rate!==null);
+  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.repair_inflation_rate),ms.map(([,v])=>'#bc8cff'),'repair inflation rate %');
+}
+
+/* ---------- lab ---------- */
+async function labEnrich(){
+  const out=$('#lab-enrich-out'); out.innerHTML='…';
+  const r=await fetch('/api/enrich',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({prompt:$('#lab-prompt').value})}).then(r=>r.json());
+  if(!r.match_details||!r.match_details.length){out.innerHTML='<div class="notice">No CWE matched — prompt looks security-neutral to the retriever.</div>';return;}
+  out.innerHTML=`<h3>Retrieval evidence</h3><div style="overflow-x:auto"><table><thead><tr><th>CWE</th><th>name</th><th>category</th><th>score</th><th>cosine</th><th>keyword hits</th></tr></thead><tbody>`+
+    r.match_details.map(d=>`<tr><td>${d.cwe}</td><td>${d.name}</td><td>${d.category}</td><td>${d.score}</td><td>${d.cosine}</td><td>${d.keywords.join(', ')||'<i>semantic only</i>'}</td></tr>`).join('')+
+    `</tbody></table></div><h3>Enriched prompt sent to the model</h3><pre>${esc(r.enriched_prompt)}</pre>`;
+}
+async function labRun(btn){
+  btn.disabled=true; btn.textContent='Running… (LLM + scanners)';
+  const out=$('#lab-run-out'); out.innerHTML='';
+  try{
+    const r=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt_id:$('#run-prompt').value,model:$('#run-model').value,mode:$('#run-mode').value})}).then(r=>r.json());
+    out.innerHTML=renderRunDetail(r);
+  }catch(e){out.innerHTML=`<div class="notice">${e}</div>`;}
+  btn.disabled=false; btn.textContent='Run pipeline';
+}
+
+/* ---------- history ---------- */
+async function loadHistory(){
+  const rows=await api('/api/history');
+  $('#hist-table tbody').innerHTML=rows.map(r=>
+    `<tr class="click" onclick="showRun(${r.id})"><td>${r.id}</td><td>${r.prompt_id}</td><td>${r.model}</td>
+     <td><span class="pill ${(r.generation||'?').toLowerCase()}">${r.generation||'?'}</span></td>
+     <td>${r.mode}</td><td>${r.rep}</td><td>${r.vuln_count}</td>
+     <td><span class="badge s-${r.final_status}">${r.final_status}</span></td>
+     <td>${r.functest_status||'—'}</td><td>${r.total_iterations}</td><td>${(r.scanners||[]).join('+')}</td></tr>`).join('')
+    || '<tr><td colspan="11" style="color:var(--dim)">No runs yet — use the Lab or run_batch.py</td></tr>';
+}
+async function showRun(id){
+  const r=await api('/api/run_detail/'+id);
+  $('#modal-body').innerHTML=renderRunDetail(r);
+  $('#modal').style.display='flex';
+}
+/* Render code with findings highlighted inline, per flagged line. */
+function highlightCode(code, findings){
+  if(!code) return '';
+  const byLine={};
+  (findings||[]).forEach(f=>{ (byLine[f.line]=byLine[f.line]||[]).push(f); });
+  return code.split('\n').map((ln,i)=>{
+    const num=i+1, fs=byLine[num];
+    if(!fs) return `<div class="codeline"><span class="ln">${num}</span><span class="lc">${esc(ln)||' '}</span></div>`;
+    const sevClass = fs.some(f=>(f.severity||'').toUpperCase()==='HIGH')?'flag-high':'flag-med';
+    const title = fs.map(f=>`${f.tool}:${f.rule} [${(f.cwes||[]).join(',')}] ${f.message}`).join(' | ');
+    return `<div class="codeline ${sevClass}" title="${esc(title)}"><span class="ln">${num}</span><span class="lc">${esc(ln)||' '}</span><span class="flagmark">⚑ ${fs.length}</span></div>`;
+  }).join('');
+}
+/* One pipeline-stage panel: title, a status note, and a line-highlighted code box (or an empty-state message). */
+function stageCard(title, note, code, findings, emptyMsg){
+  if(!code) return `<div class="stagecard empty"><div class="stagehead"><b>${title}</b><span class="note">${note||''}</span></div>
+    <div class="codebox">${emptyMsg||'no code at this stage'}</div></div>`;
+  return `<div class="stagecard"><div class="stagehead"><b>${title}</b><span class="note">${note||''}</span></div>
+    <div class="codebox">${highlightCode(code, findings)}</div></div>`;
+}
+function renderRunDetail(r){
+  let h=`<h2>${r.prompt_id} · ${r.model} · ${r.mode} · rep ${r.rep}
+    <span class="badge s-${r.final_status}">${r.final_status}</span></h2>`;
+  if(r.llm_error) h+=`<div class="notice">LLM error: ${esc(r.llm_error)}</div>`;
+  h+=`<div class="kv"><div><b>${r.vuln_count}</b><span>initial findings</span></div>
+      <div><b>${r.total_iterations}</b><span>repair iterations</span></div>
+      <div><b>${r.functest_status||'—'}</b><span>functional test</span></div>
+      <div><b>${(r.scanners||[]).join(' + ')||'—'}</b><span>scanners used</span></div></div>`;
+
+  // ---- Stage 0: the prompt itself ----
+  h+=`<h3>Prompt</h3><pre>${esc(r.prompt_text)}</pre>`;
+  if(r.mode!=='plain' && r.enriched_prompt && r.enriched_prompt!==r.prompt_text){
+    const cwes=(r.matched_cwes||[]);
+    h+=`<div class="cwechips">${cwes.map(c=>`<span class="pill">${c}</span>`).join('')||'<span class="pill">no CWE matched</span>'}</div>
+        <pre>${esc(r.enriched_prompt)}</pre>`;
+  }
+
+  // ---- Stage grid: raw generation -> extraction+scan -> each repair round -> final ----
+  h+=`<h3>Pipeline stages <span style="font-weight:400;color:var(--dim);font-size:12.5px">— red/amber lines are scanner findings; hover a line for detail</span></h3><div class="stagegrid">`;
+  const extractOk = !!r.clean_code;
+  h+=stageCard('1 · Raw generation', extractOk?'✓ extracted cleanly':'✖ extraction/syntax failed',
+    r.generated_code, null, 'no output — LLM call failed (see error above)');
+  h+=stageCard('2 · Extracted + scanned', `${r.vuln_count} finding${r.vuln_count===1?'':'s'}`,
+    r.clean_code, r.scan_results, extractOk?'':'extraction failed — nothing to scan');
+  const its=(r.repair_result||{}).iterations||[];
+  its.forEach(it=>{
+    const better = it.vulns_after < it.vulns_before;
+    const note = it.extraction_failed ? '✖ extraction failed'
+      : it.llm_error ? `✖ llm_error`
+      : `${it.vulns_before} → ${it.vulns_after} ${better?'▼ improved':'▬ no progress'}`;
+    h+=stageCard(`Repair round ${it.iteration}`, note, it.code, it.vulnerabilities,
+      it.llm_error ? esc(it.llm_error) : 'no code returned');
+  });
+  const finalFindings = its.length ? (its[its.length-1].vulnerabilities||[]) : r.scan_results;
+  h+=stageCard('Final code', r.final_status, r.final_code, finalFindings, 'no final code produced');
+  h+=`</div>`;
+
+  // ---- Functional test verdict ----
+  h+=`<h3>Functional test (Engine D)</h3>`;
+  if(!r.functest_status || r.functest_status==='no_tests'){
+    h+=`<div class="notice" style="border-color:var(--border);color:var(--dim)">No functional test exists for ${r.prompt_id} — excluded by design (see dataset/tests/MANIFEST.md). Security findings above still count toward RQ1–RQ4.</div>`;
+  } else {
+    h+=`<span class="badge s-${r.functest_status}">${r.functest_status}</span>`;
+    if(r.functest_detail) h+=`<pre>${esc(r.functest_detail)}</pre>`;
+  }
+  return h;
+}
+/* ---------- dataset ---------- */
+async function loadDataset(){
+  const ds=await api('/api/prompts');
+  $('#ds-table tbody').innerHTML=ds.map(p=>
+    `<tr><td>${p.id}</td><td>${p.category}</td><td>${p.target_cwes.join(', ')}</td>
+     <td style="color:var(--dim)">${p.source}${p.source_file?(' · '+p.source_file):''}</td>
+     <td style="color:var(--dim)">${esc(p.prompt).slice(0,90)}…</td></tr>`).join('');
+}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+</script>
+</body>
+</html>

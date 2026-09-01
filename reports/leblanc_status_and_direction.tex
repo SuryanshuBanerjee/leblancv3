@@ -1,0 +1,106 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue}
+\title{LeBlanc v3: Status, Research Direction, and MCP Deliverable}
+\author{B.Tech Capstone Project Status Report}
+\date{22 August 2026}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+LeBlanc began as a system for improving the security of LLM-generated Python code through CWE-aware prompt enrichment, static analysis, and iterative repair. Preliminary team experiments suggest that recent models may receive little additional benefit from this older scaffolding. This is not a failed outcome: it motivates the sharper question, \emph{when does legacy security scaffolding still add value, and when is it redundant?} This report records the implemented artefacts, distinguishes preliminary observations from reproducible evidence, sets revised research questions, and defines the Model Context Protocol (MCP) server as the practical project deliverable.
+\end{abstract}
+
+\section{Project in Plain Terms}
+Earlier secure-code research found that LLMs could sometimes produce safer code if they were given explicit vulnerability advice before writing, or a security-tool report after writing. LeBlanc tests whether that still matters for newer models. It does not claim to have invented these techniques.
+
+\begin{center}
+Prompt $\rightarrow$ security warning $\rightarrow$ LLM code $\rightarrow$ Bandit and Semgrep scan $\rightarrow$ optional repair $\rightarrow$ functional smoke test.
+\end{center}
+
+The central conclusion may be that scaffolding helps old models but not current models, helps only selected vulnerability categories, or produces repairs that look scanner-clean while breaking intended behaviour. Each is a meaningful result.
+
+\section{What Has Been Built}
+\begin{itemize}
+\item \textbf{Engine A}: local CWE-aware prompt enrichment.
+\item \textbf{Engine B}: Bandit plus a pinned Semgrep ruleset, with normalised findings.
+\item \textbf{Engine C}: scanner-guided LLM repair, limited to three iterations.
+\item \textbf{Engine D}: sandboxed functional smoke tests for final code.
+\item A SQLite-backed batch experiment runner, Flask dashboard, metrics layer, and frozen dataset.
+\item An MCP server exposing prompt analysis, in-memory code scanning, path scanning, response auditing, optional repair, and local project-status tools.
+\end{itemize}
+The dataset has 50 Python prompts: 10 original realistic prompts and 40 SecurityEval prompts. Twenty prompts have executable smoke tests and reference solutions. The other 30 support static security analysis only because their interfaces or safe happy paths are underspecified.
+
+\section{Current Status}
+\begin{center}
+\begin{tabular}{p{0.30\linewidth}p{0.56\linewidth}}
+\toprule
+Area & Status \\
+\midrule
+Implementation & Core pipeline, dataset, test harness, dashboard, batch runner, and MCP prototype exist. \\
+Preliminary work & The team reports approximately 600 LLM calls/attempts across 20 testable prompts and three models. The qualitative observation is that recent models saw little incremental benefit from enrichment and repair. \\
+Repository evidence & The checked-in SQLite database currently contains one stored run only. Preliminary results must be recovered, imported, or rerun before they can support paper claims. \\
+Paper/analysis & No reproducible final figures, analysis notebook outputs, or paper results are stored yet. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The ``600'' number must be made precise. Twenty prompts $\times$ three models $\times$ three modes $\times$ three repetitions equals 540 primary experimental cells. Repair calls and retries can make the number of LLM API calls exceed that. The final database must distinguish primary runs, repair iterations, retries, and failed calls.
+
+\section{Why the Research Direction Changes}
+The original proposal presented LeBlanc as a broadly useful secure-code-generation system. That is too strong. SecuCoGen studied vulnerability-aware prompting; Guiding AI to Fix Its Own Flaws studied security hints and repair feedback; CodeSecEval evaluated secure generation and repair; and CODEGUARD+ showed why security must be measured with correctness \cite{secucogen,guiding,codesec,codeguard}.
+
+LeBlanc should instead be a \textbf{temporal re-evaluation}. It asks whether older scaffolding still adds measurable benefit as models improve. A conclusion of ``little or no benefit for current models'' does not disprove prior work. It says that earlier results were conditional on the models and period in which they were measured.
+
+\section{Revised Research Questions}
+\begin{enumerate}
+\item \textbf{Baseline change:} How do old/small and current models differ in static vulnerability rate on identical tasks?
+\item \textbf{Enrichment value:} What is the paired difference between plain generation and CWE-aware prompt enrichment for each model?
+\item \textbf{Repair value:} Among initially vulnerable outputs, how often does scanner-guided repair reach a clean scanner verdict, and how quickly?
+\item \textbf{Repair inflation:} Among scanner-clean repairs, how often do functional smoke tests fail? This measures ``secure-looking but broken'' code.
+\item \textbf{Practical rule:} For which model and task combinations is the measured improvement large enough to justify invoking the MCP workflow?
+\end{enumerate}
+
+\section{Model Plan}
+The existing code lists Llama 3.1 8B, Llama 3.3 70B, GPT-4o mini, Gemini 2.5 Flash, Claude Haiku 4.5, and DeepSeek Chat. This is only a starting configuration: availability changes and the current design contains only one small/old baseline despite describing two in the documentation.
+
+Before final collection, freeze a dated model manifest containing one or two old/small baselines, one or two 2024-era capable comparisons, and at least two current 2026 models from different providers. Record exact identifiers, access date, price, temperature, token limit, scanner version, and preflight result. Interpret generation carefully: model age is confounded with provider, size, training data, and API behaviour.
+
+For every selected prompt/model pair, compare \texttt{plain}, \texttt{enriched}, and \texttt{enriched\_repair} with matched repetitions. Report extraction failures, static vulnerability rate, repair convergence, functional pass rate, and the joint scanner-clean-and-functional rate.
+
+\section{MCP Deliverable}
+The MCP server is the usable B.Tech deliverable and a demonstration of the evaluated workflow; it is not proof that the workflow is effective. A coding agent can ask it to analyse a risky task, scan generated code, audit a workspace-scoped project, and optionally request a repair. Results should govern the product behaviour: if scaffolding helps only selected cases, invoke it selectively; if its benefit is negligible, retain it chiefly as a scanner-based audit tool.
+
+Before broader use, path scanning must be restricted to approved workspace roots. A scanner-clean verdict must never be marketed as a security guarantee, and repair output must remain advisory until tests and human review pass.
+
+\section{Immediate Work}
+\begin{enumerate}
+\item Recover or rerun the preliminary experiment data and document exactly what ``600'' means.
+\item Archive database exports, raw outputs, scanner versions, and model preflight results.
+\item Freeze the model fleet and run a documented pilot before final collection.
+\item Audit static-analysis false positives and report the limited 20/50 functional-test coverage.
+\item Generate every final figure and table from the archived database.
+\item Remove the unrelated BreachTrace AWS CloudTrail sprint document from the LeBlanc research archive.
+\end{enumerate}
+
+\section{Focused Literature Review}
+The review should centre on SecuCoGen (CWE-aware prompting), Guiding AI to Fix Its Own Flaws (hints and repair feedback), CodeSecEval (secure generation/repair evaluation), and CODEGUARD+ (security plus correctness). HexaCoder and LPO/DiSCo are useful contrasts because they alter or fine-tune models, whereas LeBlanc is API-only scaffolding. The GitHub Copilot replication study supports re-measuring security behaviour as models change over time \cite{hexacoder,lpo,copilot}.
+
+\section{Conclusion}
+LeBlanc should proceed as an evidence-led re-evaluation, not as a claim to have invented secure code generation. Its contribution can be a practical answer to: \emph{when is warning-and-repair security scaffolding still worth using, and when is it obsolete?} The MCP server provides a concrete system artifact whose role can be decided by the evidence.
+
+\begin{thebibliography}{9}
+\bibitem{secucogen} Wang et al. ``Enhancing Large Language Models for Secure Code Generation: A Dataset-driven Study on Vulnerability Mitigation.'' SecuCoGen, 2024. \texttt{docs/researchdocs/Two.pdf}
+\bibitem{guiding} Yan et al. ``Guiding AI to Fix Its Own Flaws: An Empirical Study on LLM-Driven Secure Code Generation.'' 2025. \texttt{docs/researchdocs/One.pdf}
+\bibitem{codesec} Wang et al. ``Is Your AI-Generated Code Really Safe? Evaluating Large Language Models on Secure Code Generation with CodeSecEval.'' \texttt{docs/researchdocs/Three.pdf}
+\bibitem{codeguard} Fu et al. ``Constrained Decoding for Secure Code Generation.'' CODEGUARD+. \texttt{docs/researchdocs/Five.pdf}
+\bibitem{hexacoder} Hajipour et al. ``HexaCoder: Secure Code Generation via Oracle-Guided Synthetic Training Data.'' \texttt{docs/researchdocs/Seven.pdf}
+\bibitem{lpo} Hasan et al. ``Teaching an Old LLM Secure Coding: Localized Preference Optimization on Distilled Preferences.'' \texttt{docs/researchdocs/Four.pdf}
+\bibitem{copilot} Majdinasab et al. ``Assessing the Security of GitHub Copilot's Generated Code: A Targeted Replication Study.'' \texttt{docs/researchdocs/Eight.pdf}
+\bibitem{internal} LeBlanc internal records: \texttt{README.md}; \texttt{docs/00\_DEFINITION.md} through \texttt{docs/05\_EXECUTION\_PLAN.md}; \texttt{dataset/tests/MANIFEST.md}; and \texttt{backend/mcp\_server.py}.
+\end{thebibliography}
+\end{document}

@@ -1,0 +1,16 @@
+python-dotenv
+groq
+google-genai
+openai
+anthropic
+bandit
+semgrep
+pytest
+pyyaml            # used by S036 functional test / reference
+flask
+flask-cors
+mcp               # MCP server (backend/mcp_server.py) — FastMCP lives here
+
+# Optional — install to widen RQ5 functional coverage (see dataset/tests/MANIFEST.md):
+#   pycryptodome    # enables S018/S019 (RSA/DSA key-gen tests)
+#   defusedxml      # stronger S037 reference (hardened XML parsing)

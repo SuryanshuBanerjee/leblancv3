@@ -1,0 +1,29 @@
+# SecurityEval & SecuCoGen Dataset Notes
+
+This document provides reference notes on the standard benchmark datasets used for LeBlanc.
+
+## 1. SecurityEval (s2e-lab)
+**Source**: `https://github.com/s2e-lab/SecurityEval`
+**Summary**: The standard Python secure code generation benchmark dataset. Evaluates models for their propensity to generate code containing the top 25 CWEs when prompted for common functionality. Evaluates only single-turn code generation.
+**Key Stats**:
+- ~130 Python prompts
+- CWE mappings included for every prompt. 
+- Mapped heavily into Injection (CWE-89, CWE-78), Auth, Crypto (CWE-328), File access (CWE-22) categories.
+
+## 2. SecuCoGen
+**Source**: ICSE 2024 Paper (Two.pdf)
+**Summary**: Evaluates large language models using CWE-aware prompts and provides a 180-sample dataset specifically targeting vulnerable scenarios.
+**Key Stats**:
+- 180 samples.
+- Python only.
+- Does not conduct multi-model comparisons or evaluate multi-turn automated fixing.
+
+## 3. CodeSecEval
+**Source**: CodeSecEval Dataset (Three.pdf)
+**Summary**: Evaluates code safety across multiple CWEs. 
+**Key Stats**:
+- 180 samples covering 44 CWE types.
+- Provides "insecure vs secure" paired examples.
+
+## Synthesis for LeBlanc
+We utilize a subset of SecurityEval and CodeSecEval-inspired prompts to populate instances P001 through P045 in our `prompts.json` dataset. Following concerns regarding 2026 LLM safety filters (as noted in recent industry articles by groups like Endor Labs), these prompts are structured around functional application requests (e.g., "Build a PDF generation endpoint"). This ensures the models generate code naturally without triggering artificial safety censors, allowing our Pipeline (`Bandit`) to detect organic logic and injection flaws, fulfilling our need for End-to-End categorization.

@@ -1,0 +1,283 @@
+"""
+Engine B v3 — dual static analysis: Bandit ∪ Semgrep.
+
+- Extraction: fenced ```python``` block -> compile() syntax gate.
+- Bandit: -ll (medium+), JSON.
+- Semgrep: --config p/python-security, JSON. Gracefully degrades if unavailable;
+  the scanners actually used are recorded on every scan (stored in the DB so no
+  run can silently claim dual-scanner coverage it didn't have).
+- Findings unioned, deduplicated by (line, cwe-set) then (line, rule).
+"""
+import json
+import os
+import py_compile
+import re
+import shutil
+import subprocess
+import tempfile
+
+from cwe_categories import get_category_by_rule
+
+SCAN_TMP_DIR = os.path.join(os.path.dirname(__file__), "scan_tmp")
+os.makedirs(SCAN_TMP_DIR, exist_ok=True)
+
+SEMGREP_BIN = shutil.which("semgrep")
+SEMGREP_TIMEOUT = 90
+_SEV_OK = {"MEDIUM", "HIGH", "CRITICAL", "WARNING", "ERROR"}  # semgrep WARNING≈medium
+
+# Ruleset. We PIN a local copy of the `p/python` registry pack (781 rules) so that
+# (a) scans need no network per run, and (b) results are reproducible — the registry
+# pack can change under us months apart, which would silently alter findings.
+# NOTE: the previous config `p/python-security` was a 404 (never existed) and semgrep
+# was silently degrading to Bandit-only on every run. Regenerate the local file with:
+#   curl -L https://semgrep.dev/c/p/python -o semgrep_rules/python.yaml
+SEMGREP_LOCAL_CONFIG = os.path.join(os.path.dirname(__file__), "semgrep_rules", "python.yaml")
+SEMGREP_CONFIG = SEMGREP_LOCAL_CONFIG if os.path.exists(SEMGREP_LOCAL_CONFIG) else "p/python"
+
+# Set by run_semgrep on the last invocation so callers/tests can detect silent failure
+# instead of mistaking "ran, found nothing" for "never ran".
+LAST_SEMGREP_ERRORS = []
+
+
+def extract_code_from_response(response_text):
+    if not response_text:
+        return ""
+    matches = re.findall(r"```(?:python)?\s*\n(.*?)```", response_text, re.DOTALL)
+    return matches[0].strip() if matches else ""
+
+
+def run_bandit(filepath):
+    findings = []
+    try:
+        result = subprocess.run(
+            ["python", "-m", "bandit", "-q", "-f", "json", "-ll", filepath],
+            capture_output=True, text=True, timeout=60,
+        )
+        data = json.loads(result.stdout) if result.stdout.strip() else {}
+        for r in data.get("results", []):
+            cwe_info = r.get("issue_cwe") or {}
+            cwe_id = f"CWE-{cwe_info.get('id')}" if cwe_info.get("id") else "unmapped"
+            rule_id = r.get("test_id", "unknown")
+            findings.append({
+                "tool": "bandit",
+                "rule": rule_id,
+                "category": get_category_by_rule(rule_id, [cwe_id]),
+                "cwes": [cwe_id],
+                "severity": r.get("issue_severity", "UNKNOWN"),
+                "line": r.get("line_number", 0),
+                "message": r.get("issue_text", ""),
+            })
+    except Exception:
+        pass
+    return findings
+
+
+def run_semgrep(filepath):
+    global LAST_SEMGREP_ERRORS
+    LAST_SEMGREP_ERRORS = []
+    if not SEMGREP_BIN:
+        return None  # unavailable (distinct from "ran and found nothing")
+    try:
+        result = subprocess.run(
+            [SEMGREP_BIN, "scan", "--config", SEMGREP_CONFIG, "--json",
+             "--quiet", "--disable-version-check", "--metrics", "off", filepath],
+            capture_output=True, text=True, timeout=SEMGREP_TIMEOUT,
+        )
+        data = json.loads(result.stdout) if result.stdout.strip() else {}
+        # Surface config/rule errors instead of pretending the scan was clean.
+        errs = data.get("errors", [])
+        if errs:
+            LAST_SEMGREP_ERRORS = [str(e.get("message", e))[:200] for e in errs]
+        findings = []
+        for r in data.get("results", []):
+            extra = r.get("extra", {})
+            sev = extra.get("severity", "UNKNOWN").upper()
+            if sev not in _SEV_OK:
+                continue
+            meta = extra.get("metadata", {})
+            cwes_raw = meta.get("cwe", [])
+            if isinstance(cwes_raw, str):
+                cwes_raw = [cwes_raw]
+            cwes = []
+            for c in cwes_raw:
+                m = re.search(r"CWE-\d+", str(c))
+                if m:
+                    cwes.append(m.group(0))
+            cwes = cwes or ["unmapped"]
+            rule_id = r.get("check_id", "unknown").split(".")[-1]
+            findings.append({
+                "tool": "semgrep",
+                "rule": rule_id,
+                "category": get_category_by_rule(rule_id, cwes),
+                "cwes": cwes,
+                "severity": sev,
+                "line": r.get("start", {}).get("line", 0),
+                "message": extra.get("message", "")[:300],
+            })
+        return findings
+    except Exception:
+        return None
+
+
+def scan_code(code_string):
+    """
+    Returns (findings, clean_code, scanners_used).
+    findings = [] with clean_code == "" means extraction/compile failure.
+    """
+    clean_code = extract_code_from_response(code_string)
+    if not clean_code:
+        return [], "", []
+
+    with tempfile.NamedTemporaryFile(
+        suffix=".py", mode="w", encoding="utf-8", delete=False, dir=SCAN_TMP_DIR
+    ) as f:
+        f.write(clean_code)
+        filepath = f.name
+
+    try:
+        try:
+            py_compile.compile(filepath, doraise=True)
+        except py_compile.PyCompileError:
+            return [], "", []
+
+        scanners = ["bandit"]
+        findings = run_bandit(filepath)
+        sg = run_semgrep(filepath)
+        if sg is not None:
+            scanners.append("semgrep")
+            findings.extend(sg)
+
+        # dedup: same line + same CWE set (cross-tool), then same line + rule
+        seen, deduped = set(), []
+        for fd in findings:
+            key = (fd["line"], tuple(sorted(fd["cwes"])))
+            key2 = (fd["line"], fd["rule"])
+            if key in seen or key2 in seen:
+                continue
+            seen.add(key)
+            seen.add(key2)
+            deduped.append(fd)
+        return deduped, clean_code, scanners
+    finally:
+        if os.path.exists(filepath):
+            os.unlink(filepath)
+
+
+def _bandit_path(path):
+    findings = []
+    try:
+        result = subprocess.run(
+            ["python", "-m", "bandit", "-q", "-f", "json", "-ll", "-r", path],
+            capture_output=True, text=True, timeout=180,
+        )
+        data = json.loads(result.stdout) if result.stdout.strip() else {}
+        for r in data.get("results", []):
+            cwe_info = r.get("issue_cwe") or {}
+            cwe_id = f"CWE-{cwe_info.get('id')}" if cwe_info.get("id") else "unmapped"
+            rule_id = r.get("test_id", "unknown")
+            findings.append({
+                "tool": "bandit", "rule": rule_id,
+                "category": get_category_by_rule(rule_id, [cwe_id]),
+                "cwes": [cwe_id], "severity": r.get("issue_severity", "UNKNOWN"),
+                "file": r.get("filename", path), "line": r.get("line_number", 0),
+                "message": r.get("issue_text", ""),
+            })
+    except Exception:
+        pass
+    return findings
+
+
+def _semgrep_path(path):
+    global LAST_SEMGREP_ERRORS
+    LAST_SEMGREP_ERRORS = []
+    if not SEMGREP_BIN:
+        return None
+    try:
+        result = subprocess.run(
+            [SEMGREP_BIN, "scan", "--config", SEMGREP_CONFIG, "--json",
+             "--quiet", "--disable-version-check", "--metrics", "off", path],
+            capture_output=True, text=True, timeout=max(SEMGREP_TIMEOUT, 300),
+        )
+        data = json.loads(result.stdout) if result.stdout.strip() else {}
+        if data.get("errors"):
+            LAST_SEMGREP_ERRORS = [str(e.get("message", e))[:200] for e in data["errors"]]
+        findings = []
+        for r in data.get("results", []):
+            extra = r.get("extra", {})
+            sev = extra.get("severity", "UNKNOWN").upper()
+            if sev not in _SEV_OK:
+                continue
+            meta = extra.get("metadata", {})
+            cwes_raw = meta.get("cwe", [])
+            if isinstance(cwes_raw, str):
+                cwes_raw = [cwes_raw]
+            cwes = [m.group(0) for c in cwes_raw if (m := re.search(r"CWE-\d+", str(c)))] or ["unmapped"]
+            findings.append({
+                "tool": "semgrep", "rule": r.get("check_id", "unknown").split(".")[-1],
+                "category": get_category_by_rule(r.get("check_id", ""), cwes),
+                "cwes": cwes, "severity": sev,
+                "file": r.get("path", path), "line": r.get("start", {}).get("line", 0),
+                "message": extra.get("message", "")[:300],
+            })
+        return findings
+    except Exception as e:
+        LAST_SEMGREP_ERRORS = [str(e)[:200]]
+        return None
+
+
+def scan_path(path, max_files=500):
+    """
+    Scan a real file OR directory (recursively) with Bandit ∪ Semgrep — the
+    codebase-scale counterpart to scan_code(). Returns:
+      {ok, path, scanners_used, semgrep_errors, finding_count, findings, by_file}
+    findings carry a `file` key. Skips nothing silently: if semgrep errors, they
+    are reported in semgrep_errors rather than vanishing.
+    """
+    if not os.path.exists(path):
+        return {"ok": False, "error": f"path not found: {path}"}
+
+    scanners = ["bandit"]
+    findings = _bandit_path(path)
+    sg = _semgrep_path(path)
+    if sg is not None:
+        scanners.append("semgrep")
+        findings.extend(sg)
+
+    # dedup per file: (file, line, cwe-set) then (file, line, rule)
+    seen, deduped = set(), []
+    for fd in findings:
+        fkey = os.path.normpath(fd.get("file", ""))
+        key = (fkey, fd["line"], tuple(sorted(fd["cwes"])))
+        key2 = (fkey, fd["line"], fd["rule"])
+        if key in seen or key2 in seen:
+            continue
+        seen.add(key)
+        seen.add(key2)
+        deduped.append(fd)
+
+    by_file = {}
+    for fd in deduped:
+        by_file.setdefault(os.path.normpath(fd.get("file", "")), 0)
+        by_file[os.path.normpath(fd.get("file", ""))] += 1
+
+    return {
+        "ok": True, "path": path, "scanners_used": scanners,
+        "semgrep_errors": LAST_SEMGREP_ERRORS,
+        "finding_count": len(deduped), "findings": deduped, "by_file": by_file,
+    }
+
+
+if __name__ == "__main__":
+    vuln_snippet = '''```python
+import subprocess, hashlib, yaml
+
+def run(cmd, doc):
+    subprocess.call(cmd, shell=True)
+    h = hashlib.md5(b"pw").hexdigest()
+    data = yaml.load(doc)
+    return h, data
+```'''
+    findings, code, scanners = scan_code(vuln_snippet)
+    print("scanners:", scanners)
+    for fd in findings:
+        print(f"  [{fd['tool']}] {fd['rule']} {fd['cwes']} sev={fd['severity']} line={fd['line']}")

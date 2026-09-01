@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/scan_tmp/
+
+# secrets (this project reads D:\LYPROJECT\.env, one level up — never inside here,
+# but ignore defensively in case a local .env ever gets added)
+.env
+.env.local
+
+# generated / local state — not source, regenerate via run_batch.py / validate_m2.py
+backend/leblanc_v3.db
+backend/leblanc_v3.db-journal
+
+# LaTeX build junk (keep .tex source and .pdf output, drop the rest)
+reports/*.aux
+reports/*.log
+reports/*.out
+reports/*.toc
+reports/*.synctex.gz
+
+# Claude Code local/machine-specific settings
+.claude/settings.local.json
+
+# OS
+Thumbs.db
+.DS_Store
