@@ -8,12 +8,14 @@ Engine B v3 — dual static analysis: Bandit ∪ Semgrep.
   run can silently claim dual-scanner coverage it didn't have).
 - Findings unioned, deduplicated by (line, cwe-set) then (line, rule).
 """
+import hashlib
 import json
 import os
 import py_compile
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from cwe_categories import get_category_by_rule
@@ -37,6 +39,50 @@ SEMGREP_CONFIG = SEMGREP_LOCAL_CONFIG if os.path.exists(SEMGREP_LOCAL_CONFIG) el
 # Set by run_semgrep on the last invocation so callers/tests can detect silent failure
 # instead of mistaking "ran, found nothing" for "never ran".
 LAST_SEMGREP_ERRORS = []
+
+
+_PROVENANCE = None
+
+
+def scanner_provenance():
+    """What actually produced the findings — captured once, stored on every run.
+
+    The project's reproducibility claim is "we pin the ruleset so results don't
+    drift". That claim is unverifiable after the fact unless each run records
+    *which* pinned ruleset and *which* analyser versions were actually in play:
+    a reader (or we, six months later) otherwise cannot tell whether a changed
+    number means the models changed or the tooling did. Cheap to record, and it
+    is the difference between "reproducible" as an aspiration and as a fact.
+    """
+    global _PROVENANCE
+    if _PROVENANCE is not None:
+        return _PROVENANCE
+
+    def _ver(cmd):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                               stdin=subprocess.DEVNULL)
+            return (r.stdout or r.stderr).strip().splitlines()[0][:80]
+        except Exception as e:
+            return f"unavailable: {type(e).__name__}"
+
+    ruleset_hash = None
+    if os.path.exists(SEMGREP_LOCAL_CONFIG):
+        h = hashlib.sha256()
+        with open(SEMGREP_LOCAL_CONFIG, "rb") as f:
+            for chunk in iter(lambda: f.read(65536), b""):
+                h.update(chunk)
+        ruleset_hash = h.hexdigest()[:16]
+
+    _PROVENANCE = {
+        "bandit": _ver(["python", "-m", "bandit", "--version"]),
+        "semgrep": _ver([SEMGREP_BIN, "--version"]) if SEMGREP_BIN else "not installed",
+        "semgrep_config": os.path.basename(SEMGREP_CONFIG),
+        "semgrep_ruleset_sha256_16": ruleset_hash,
+        "python": sys.version.split()[0],
+        "platform": sys.platform,
+    }
+    return _PROVENANCE
 
 
 def extract_code_from_response(response_text):
