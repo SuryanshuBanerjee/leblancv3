@@ -243,7 +243,7 @@ if __name__ == "__main__":
 **Step 3b — two independent analysers.**
 
 - **Bandit** `-ll` (medium+ only), AST-based; strong on crypto misuse, subprocess, pickle.
-- **Semgrep** against a **pinned local copy** of the `p/python` pack (151 Python rules, `backend/semgrep_rules/python.yaml`) — pinned so scans need no network *and* so results don't silently change when the upstream pack is updated months later. If Semgrep is missing, the scan degrades to Bandit-only and **records which scanners actually ran**, so no run can claim dual coverage it didn't have.
+- **Semgrep** against a **pinned local copy** of the `p/python` pack (151 Python rules, `backend/semgrep_rules/python.yaml`) — pinned so scans need no network *and* so results don't silently change when the upstream pack is updated months later. **Either** analyser returns "did not run" rather than "found nothing" when it fails, and only analysers that actually ran are listed in `scanners_used` — so no run can claim dual coverage it didn't have. (`[]` means ran-and-found-nothing; `None` means didn't run. Keeping those apart is the difference between a clean scan and a crashed one.)
 
 **Step 3c — deduplication.** The two tools overlap heavily, and this is where a real bug lived until 2026-09-07. Findings merge on three keys, in descending order of confidence:
 

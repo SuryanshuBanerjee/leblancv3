@@ -81,6 +81,14 @@ responses) were left as real data.
    `fail`, which conflated "the code doesn't work" with "there was no code" and
    inflated RQ5's broken-code numerator.)
 
+**Scanner honesty (added 2026-09-07).** Both analysers now distinguish "did not
+run" (None) from "ran, found nothing" ([]), and `scanners_used` lists only the
+analysers that actually completed. Previously a crashed or missing Bandit
+returned an empty finding list, so the run recorded a clean scan *and* claimed
+Bandit coverage — the same silent-degradation failure the code already guarded
+against for Semgrep. Found by auditing error paths; regression-tested in
+`backend/test_engines.py::TestScannerHonesty`.
+
 **Provenance (added 2026-09-07).** Every run stores a `provenance` blob: Bandit
 version, Semgrep version, the config name, a SHA-256 of the pinned ruleset file,
 Python version, platform. The reproducibility claim ("results don't drift because

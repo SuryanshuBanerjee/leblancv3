@@ -1,12 +1,23 @@
 """
 Engine B v3 — dual static analysis: Bandit ∪ Semgrep.
 
-- Extraction: fenced ```python``` block -> compile() syntax gate.
-- Bandit: -ll (medium+), JSON.
-- Semgrep: --config p/python-security, JSON. Gracefully degrades if unavailable;
-  the scanners actually used are recorded on every scan (stored in the DB so no
-  run can silently claim dual-scanner coverage it didn't have).
-- Findings unioned, deduplicated by (line, cwe-set) then (line, rule).
+- Extraction: fenced ```python``` block -> compile() syntax gate. Failure is its
+  own outcome class, never "clean".
+- Bandit: -ll (medium+ only), JSON.
+- Semgrep: --config = a PINNED LOCAL COPY of the `p/python` pack (151 Python
+  rules, semgrep_rules/python.yaml), so scans need no network and results do not
+  drift when the upstream pack changes.
+- EITHER analyser returns None if it did not run, and only analysers that
+  actually ran are listed in `scanners_used` — so no run can silently claim
+  dual-scanner coverage it didn't have. `[]` means "ran, found nothing"; None
+  means "did not run". These are different facts and are kept apart.
+- Findings from both tools are unioned, then deduplicated on three keys in
+  descending confidence: canonical cross-tool issue (the same weakness the two
+  tools map to DIFFERENT CWEs), then (line, cwe-set), then (line, rule).
+  Merged findings keep the higher severity, union the CWEs, and record
+  tool="bandit+semgrep" so the corroboration survives.
+- scanner_provenance() records the analyser versions and a hash of the pinned
+  ruleset onto every run, so a number that changes later can be attributed.
 """
 import hashlib
 import json
@@ -27,7 +38,7 @@ SEMGREP_BIN = shutil.which("semgrep")
 SEMGREP_TIMEOUT = 90
 _SEV_OK = {"MEDIUM", "HIGH", "CRITICAL", "WARNING", "ERROR"}  # semgrep WARNING≈medium
 
-# Ruleset. We PIN a local copy of the `p/python` registry pack (781 rules) so that
+# Ruleset. We PIN a local copy of the `p/python` registry pack (151 Python rules) so that
 # (a) scans need no network per run, and (b) results are reproducible — the registry
 # pack can change under us months apart, which would silently alter findings.
 # NOTE: the previous config `p/python-security` was a 404 (never existed) and semgrep
@@ -39,6 +50,9 @@ SEMGREP_CONFIG = SEMGREP_LOCAL_CONFIG if os.path.exists(SEMGREP_LOCAL_CONFIG) el
 # Set by run_semgrep on the last invocation so callers/tests can detect silent failure
 # instead of mistaking "ran, found nothing" for "never ran".
 LAST_SEMGREP_ERRORS = []
+# Same idea for Bandit: set when a Bandit invocation raises, so a failed scan is
+# distinguishable from a clean one.
+LAST_BANDIT_ERROR = None
 
 
 _PROVENANCE = None
@@ -93,6 +107,8 @@ def extract_code_from_response(response_text):
 
 
 def run_bandit(filepath):
+    global LAST_BANDIT_ERROR
+    LAST_BANDIT_ERROR = None
     findings = []
     try:
         result = subprocess.run(
@@ -113,9 +129,15 @@ def run_bandit(filepath):
                 "line": r.get("line_number", 0),
                 "message": r.get("issue_text", ""),
             })
-    except Exception:
-        pass
-    return findings
+        return findings
+    except Exception as e:
+        # Return None, never []. An empty list means "ran, found nothing"; None
+        # means "did not run". Collapsing the two would let a crashed or missing
+        # Bandit report a clean scan and still be listed in `scanners_used` —
+        # precisely the silent-coverage failure this project already guards
+        # against for Semgrep. (Fixed 2026-09-07; found by auditing error paths.)
+        LAST_BANDIT_ERROR = f"{type(e).__name__}: {str(e)[:200]}"
+        return None
 
 
 def run_semgrep(filepath):
@@ -254,8 +276,11 @@ def scan_code(code_string):
         except py_compile.PyCompileError:
             return [], "", []
 
-        scanners = ["bandit"]
-        findings = run_bandit(filepath)
+        scanners, findings = [], []
+        bd = run_bandit(filepath)
+        if bd is not None:
+            scanners.append("bandit")
+            findings.extend(bd)
         sg = run_semgrep(filepath)
         if sg is not None:
             scanners.append("semgrep")
@@ -268,6 +293,8 @@ def scan_code(code_string):
 
 
 def _bandit_path(path):
+    global LAST_BANDIT_ERROR
+    LAST_BANDIT_ERROR = None
     findings = []
     try:
         result = subprocess.run(
@@ -286,9 +313,10 @@ def _bandit_path(path):
                 "file": r.get("filename", path), "line": r.get("line_number", 0),
                 "message": r.get("issue_text", ""),
             })
-    except Exception:
-        pass
-    return findings
+        return findings
+    except Exception as e:
+        LAST_BANDIT_ERROR = f"{type(e).__name__}: {str(e)[:200]}"
+        return None
 
 
 def _semgrep_path(path):
@@ -340,8 +368,11 @@ def scan_path(path, max_files=500):
     if not os.path.exists(path):
         return {"ok": False, "error": f"path not found: {path}"}
 
-    scanners = ["bandit"]
-    findings = _bandit_path(path)
+    scanners, findings = [], []
+    bd = _bandit_path(path)
+    if bd is not None:
+        scanners.append("bandit")
+        findings.extend(bd)
     sg = _semgrep_path(path)
     if sg is not None:
         scanners.append("semgrep")
@@ -357,7 +388,7 @@ def scan_path(path, max_files=500):
 
     return {
         "ok": True, "path": path, "scanners_used": scanners,
-        "semgrep_errors": LAST_SEMGREP_ERRORS,
+        "semgrep_errors": LAST_SEMGREP_ERRORS, "bandit_error": LAST_BANDIT_ERROR,
         "finding_count": len(deduped), "findings": deduped, "by_file": by_file,
     }
 

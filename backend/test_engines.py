@@ -261,6 +261,36 @@ class TestProvenance:
         assert scanner_provenance() is scanner_provenance()
 
 
+class TestScannerHonesty:
+    """A scanner that did not run must not be listed as though it did."""
+
+    def test_failed_bandit_is_not_claimed_in_scanners_used(self, monkeypatch):
+        """`[]` means "ran, found nothing"; None means "did not run". If a crashed
+        Bandit returned [], the run would report a clean scan AND claim Bandit
+        coverage — the exact silent-degradation failure this project already
+        guards against for Semgrep. (Regression test for the 2026-09-07 fix.)"""
+        import engine_b_scan as eb
+        real_run = eb.subprocess.run
+
+        def explode(cmd, **kw):
+            if "bandit" in " ".join(map(str, cmd)):
+                raise OSError("simulated bandit failure")
+            return real_run(cmd, **kw)
+
+        monkeypatch.setattr(eb.subprocess, "run", explode)
+        findings, clean, scanners = eb.scan_code(
+            "```python\nimport hashlib\nhashlib.md5(b'x')\n```")
+        assert clean, "extraction should still succeed"
+        assert "bandit" not in scanners, "a scanner that crashed must not be claimed"
+        assert eb.LAST_BANDIT_ERROR and "simulated" in eb.LAST_BANDIT_ERROR
+
+    def test_missing_semgrep_degrades_without_claiming_it(self, monkeypatch):
+        import engine_b_scan as eb
+        monkeypatch.setattr(eb, "SEMGREP_BIN", None)
+        _, clean, scanners = eb.scan_code("```python\nx = 1\n```")
+        assert clean and "semgrep" not in scanners
+
+
 @pytest.mark.slow
 class TestLiveScan:
     """Actually shells out to Bandit/Semgrep — slower, and version-dependent.
