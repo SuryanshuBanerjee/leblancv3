@@ -47,10 +47,21 @@ def _valid(r):
 
 
 def _is_vuln_final(r):
-    """Vulnerable verdict on the FINAL code of the run (post-repair if repair ran)."""
-    if r["mode"] == "enriched_repair" and r["repair_result"]:
-        return r["repair_result"].get("final_status") == "not_converged" or (
-            r["repair_result"].get("final_status") not in ("clean",) and r["vuln_count"] > 0)
+    """Vulnerable verdict on the FINAL code of the run (post-repair if repair ran).
+
+    Only the repair mode can change a run's verdict after generation; in plain and
+    enriched modes the final code IS the generated code, so the initial scan
+    stands. When Engine C did run, the loop's own terminal status is authoritative:
+    it re-scanned the patched code, which `vuln_count` (an artefact of the FIRST
+    scan) never reflects.
+
+    (Simplified 2026-09-07 — the previous form tested `not_converged` explicitly
+    and then again via a redundant second clause. Same truth table, but the old
+    shape invited the reading that some third status was being handled.)
+    """
+    rr = r["repair_result"] if r["mode"] == "enriched_repair" else None
+    if rr:
+        return rr.get("final_status") != "clean"
     return r["vuln_count"] > 0
 
 
@@ -224,9 +235,15 @@ def _rq5(runs, models_seen, gens):
         claims = [r for r in runs if r["model"] == m and r["mode"] == "enriched_repair"
                   and (r["repair_result"] or {}).get("final_status") == "clean"
                   and r["total_iterations"] > 0]
+        # `no_code` (extraction failed upstream, nothing to test) and `harness_error`
+        # (our runner broke) are deliberately NOT in the denominator: neither is
+        # evidence about whether a repair preserved functionality. They are counted
+        # separately so they can't vanish silently.
         tested = [r for r in claims if r["functest_status"] in ("pass", "fail", "timeout")]
         broken = [r for r in tested if r["functest_status"] in ("fail", "timeout")]
         no_tests = sum(1 for r in claims if r["functest_status"] == "no_tests")
+        excluded = sum(1 for r in claims
+                       if r["functest_status"] in ("no_code", "harness_error"))
         rate, lo, hi = wilson_ci(len(broken), len(tested))
         per_model[m] = {
             "gen": gens.get(m, "?"),
@@ -235,6 +252,7 @@ def _rq5(runs, models_seen, gens):
             "secretly_broken": len(broken),
             "repair_inflation_rate": rate, "ci": [lo, hi],
             "awaiting_tests": no_tests,
+            "excluded_no_code_or_harness_error": excluded,
             "insufficient": len(tested) < MIN_N,
         }
     return {

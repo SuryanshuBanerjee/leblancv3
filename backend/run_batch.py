@@ -20,7 +20,7 @@ import time
 
 from database import init_db, save_run, has_run, get_all_runs
 from engine_a_enrich import enrich_prompt
-from engine_b_scan import scan_code
+from engine_b_scan import scan_code, scanner_provenance
 from engine_c_repair import repair_loop
 from engine_d_functest import run_functional_tests
 from llm_client import MODEL_CONFIGS, call_llm, preflight
@@ -76,6 +76,10 @@ def run_cell(p, model, mode, rep):
     base = {
         "prompt_id": p["id"], "model": model, "mode": mode, "rep": rep,
         "generation": gen_bucket, "category": p["category"], "prompt_text": p["prompt"],
+        # Which analyser versions and which pinned ruleset produced this row.
+        # Without it, "our results are reproducible because the ruleset is pinned"
+        # is unverifiable after the fact — see engine_b_scan.scanner_provenance().
+        "provenance": scanner_provenance(),
     }
 
     # Engine A
@@ -120,10 +124,13 @@ def run_cell(p, model, mode, rep):
         else:
             base["final_status"] = "clean" if not vulns else "vulnerable"
 
-    # Engine D — functional verdict on whatever code we ended with
+    # Engine D — functional verdict on whatever code we ended with.
+    # An extraction failure yields `no_code`, NOT `fail`: there was never a
+    # candidate to test, and counting it as functionally broken would inflate
+    # RQ5's numerator with runs that produced nothing at all. (Fixed 2026-09-07.)
     base["final_code"] = final_code
     ft = run_functional_tests(p["id"], final_code) if not extraction_failed else \
-        {"status": "fail", "detail": "extraction failed"}
+        {"status": "no_code", "detail": "extraction failed upstream; no code to test"}
     base["functest_status"] = ft["status"]
     base["functest_detail"] = ft["detail"]
 

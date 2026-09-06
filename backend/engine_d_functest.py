@@ -7,7 +7,13 @@ generated code, in an isolated subprocess with a hard timeout.
 Outcomes:
   pass      — tests ran and all passed
   fail      — tests ran, at least one failed/errored (secure-but-broken candidate)
-  no_tests  — no test file exists for this prompt yet (M2 not done)
+  no_tests  — no test file exists for this prompt (excluded by design, see MANIFEST)
+  no_code   — there was no code to test (extraction/compile failed upstream).
+              NOT the same thing as `fail`: "the code does not work" and "there was
+              never any code" are different facts, and folding the second into the
+              first would silently inflate RQ5's broken-code numerator with runs
+              that never produced a candidate at all. (Fixed 2026-09-07; before
+              that, extraction failures were recorded as `fail`.)
   timeout   — exceeded hard limit
   harness_error — the runner itself broke (investigate, never count as pass/fail)
 """
@@ -39,7 +45,8 @@ def run_functional_tests(prompt_id, final_code):
     if not os.path.exists(test_file):
         return {"status": "no_tests", "detail": ""}
     if not final_code:
-        return {"status": "fail", "detail": "no code to test"}
+        # No code is not the same as broken code — see the outcome list above.
+        return {"status": "no_code", "detail": "nothing to test (no code produced)"}
 
     sandbox = tempfile.mkdtemp(prefix=f"leblanc_{prompt_id}_")
     try:
