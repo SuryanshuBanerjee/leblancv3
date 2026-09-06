@@ -28,9 +28,17 @@ from llm_client import MODEL_CONFIGS, call_llm, preflight
 DATASET_PATH = os.path.join(os.path.dirname(__file__), "..", "dataset", "leblanc_v3_prompts.json")
 MODES = ["plain", "enriched", "enriched_repair"]
 
-# $ per 1M tokens (input, output). 0 = free tier. Update when pricing changes.
+# $ per 1M tokens (input, output). 0 = genuinely free tier. Update when pricing changes.
+#
+# 2026-09-07: gemini-2.5-flash moved from (0, 0) to paid rates. It was on Google's
+# free tier when the 2026-09-01 pilot ran, and is not any more — leaving it at (0, 0)
+# would have made the cost gate wave through a Gemini-inclusive batch as "$0, no
+# confirmation needed", which is exactly the silent-spend case the gate exists to
+# prevent. The 2026-09-01 pilot's $0 cost is therefore a historical fact about that
+# run, not a claim about re-running it today (see docs/03_METHODOLOGY.md).
 PRICES = {
-    "gpt-oss-20b": (0, 0), "gpt-oss-120b": (0, 0), "gemini-2.5-flash": (0, 0),
+    "gpt-oss-20b": (0, 0), "gpt-oss-120b": (0, 0),      # Groq free tier
+    "gemini-2.5-flash": (0.30, 2.50),                    # paid as of 2026-09-07
     "gpt-4o-mini": (0.15, 0.60), "claude-haiku-4.5": (1.00, 5.00), "deepseek-chat": (0.27, 1.10),
 }
 EST_IN_TOK, EST_OUT_TOK = 1500, 1000   # per LLM call, rough
