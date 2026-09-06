@@ -26,6 +26,22 @@ ANTHROPIC_API_KEY=...   # paid      -> claude-haiku-4.5     (optional)
 DEEPSEEK_API_KEY=...    # paid      -> deepseek-chat        (optional)
 ```
 
+**Prove the system is healthy before anything else** (free, offline, ~60s):
+
+```bash
+python selfcheck.py
+```
+
+13 checks: dependencies, every module imports, the dataset is intact and unique, every
+functional test has a reference solution, Engine A fires on all 50 prompts and is
+deterministic, the scanners are installed and actually detect a known injection, cross-tool
+dedup still merges, a crashed scanner does not report clean, the Engine D sandbox classifies
+outcomes correctly, the statistics behave, the database is readable, and the analysis
+regenerates. Exit code 0 means go. `--quick` skips the slow scanner round-trips (~8s);
+`--keys` additionally verifies which API keys work.
+
+**If anything is red, do not start a run.** That is the whole point of the command.
+
 Check the fleet answers before spending anything (one 1-token call per model):
 
 ```bash
@@ -106,9 +122,10 @@ Writes to `analysis/output/`:
 | `figures/*.png` | the six paper figures, publication-styled |
 | `tables/rq*.tex` | paper-ready LaTeX tables — `\input{}` them straight into the draft |
 | `tables/rq*.md` | the same tables for the README / slides |
+| `tables/sensitivity.*` | the headline rate under every analysis choice — the honest range |
 | `results.json` | every computed number, machine-readable |
 
-**Looks right:** it prints the run count, then `wrote 6 figures, 10 table files...`.
+**Looks right:** it prints the run count, then `wrote 6 figures, 12 table files...`.
 If it says the logistic regression did not converge, that is the script correctly
 refusing to report unstable coefficients from sparse data — collect more reps, do not
 report those numbers.
@@ -179,14 +196,17 @@ disagree, the paper is wrong.
 ## The whole thing, if you just want the shortest path
 
 ```bash
-cd D:\LYPROJECT\v3\backend
-pip install -r requirements.txt
-python run_batch.py --preflight
+cd D:\LYPROJECT\v3
+pip install -r backend/requirements.txt
+python selfcheck.py --keys                 # 13 checks — if this is red, stop here
+
+cd backend
 python validate_m2.py
 python run_batch.py --models all --modes all --reps 3 --yes    # the long one
 python run_batch.py --report
+
 cd .. && python analysis/rq_analysis.py
-python analysis/fp_audit.py --sample     # then label, then --score
+python analysis/fp_audit.py --sample       # then label it, then --score
 ```
 
 Then read `analysis/output/SUMMARY.md` and write the paper around what it says —

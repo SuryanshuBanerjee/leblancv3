@@ -102,18 +102,21 @@ pip install -r requirements.txt
 # 2. API keys — see "API keys" below. Free tier needs GROQ_API_KEY + GEMINI_API_KEY only.
 #    Keys live in D:\LYPROJECT\.env (one level above this repo, never committed).
 
-# 3. sanity-check the fleet before spending anything (free — 1 tiny call per model)
+# 3. prove the whole system is healthy (free, offline, ~60s, 13 checks)
+python ../selfcheck.py
+
+# 4. sanity-check the fleet before spending anything (free — 1 tiny call per model)
 python run_batch.py --preflight
 
-# 4. launch the dashboard
+# 5. launch the dashboard
 python app.py
 # -> http://localhost:5000
 
-# 5. (optional) run a free pilot — Groq-only, $0, resumable
+# 6. (optional) run a free pilot — Groq-only, $0, resumable
 #    (gemini-2.5-flash moved to paid billing on 2026-09-07 — including it costs money now)
 python run_batch.py --models gpt-oss-20b gpt-oss-120b --modes all --reps 1
 
-# 6. (optional) hook it up to Claude Code as an agent tool
+# 7. (optional) hook it up to Claude Code as an agent tool
 claude mcp add leblanc -s user -- python D:/LYPROJECT/v3/backend/mcp_server.py
 ```
 
@@ -614,6 +617,7 @@ frontend/
   index.html                the entire dashboard UI (vanilla JS + Chart.js, no build step)
 reports/
   *.tex / *.pdf               periodic status reports to the supervising professor
+selfcheck.py                  one-command health check (13 checks, free, offline)
 RUNBOOK.md                    everything left to do, as commands
 FAQ.md                        why it's built this way + roadmap + reference sheet
 TODO.md                       the prioritized, actionable to-do list (P0 → P3)
