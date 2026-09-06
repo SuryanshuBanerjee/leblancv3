@@ -1,0 +1,53 @@
+% LeBlanc v3 pipeline diagram — standalone TikZ figure, drop into any paper.
+%
+% Provenance: adapted from the TikZ figure in the (now-removed) April 2026
+% VAPT mini-project report, corrected to the v3 pipeline: four engines, not
+% three (Engine D — the functional-test honesty layer — did not exist in the
+% version that diagram was drawn for), a 3-iteration repair cap (not 5), and
+% the current 6-model fleet instead of the two-model Gemini/Llama pairing.
+%
+% Requires in the preamble:
+%   \usepackage{tikz}
+%   \usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds}
+%   \usepackage{float}
+%   \definecolor{accent}{HTML}{2A78D6}
+%   \definecolor{midgray}{HTML}{52514E}
+%   \definecolor{lightgray}{HTML}{F4F4F2}
+%
+% Usage: \input{figures/pipeline_diagram.tex}
+
+\begin{figure}[H]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  font=\small,
+  box/.style={rectangle, rounded corners=3pt, draw=accent, thick,
+              fill=lightgray, text width=2.7cm, align=center, minimum height=1.05cm},
+  arrow/.style={-Stealth, thick, color=accent},
+  lbl/.style={font=\footnotesize\itshape, color=midgray},
+]
+
+\node[box] (A) {Engine A\\{\scriptsize CWE enrichment}};
+\node[box, right=1.15cm of A] (LLM) {LLM\\{\scriptsize 6 models, 3 tiers}};
+\node[box, right=1.15cm of LLM] (B) {Engine B\\{\scriptsize Bandit $\cup$ Semgrep}};
+\node[box, right=1.15cm of B] (C) {Engine C\\{\scriptsize repair loop $\leq 3$}};
+\node[box, right=1.15cm of C] (D) {Engine D\\{\scriptsize functional tests}};
+
+\draw[arrow] (A) -- (LLM) node[midway, above, lbl] {enriched prompt};
+\draw[arrow] (LLM) -- (B) node[midway, above, lbl] {raw response};
+\draw[arrow] (B) -- (C) node[midway, above, lbl] {findings};
+\draw[arrow] (C) -- (D) node[midway, above, lbl] {final code};
+\draw[arrow] (C.south) -- ++(0,-0.65) -| (LLM.south)
+      node[near start, below, lbl] {repair prompt (up to 3 iterations)};
+
+\node[above=0.18cm of A, lbl] {user prompt};
+\node[above=0.18cm of D, lbl] {secure-pass verdict};
+\end{tikzpicture}%
+}
+\caption{The LeBlanc v3 pipeline. Engine A injects CWE warnings before generation
+(rule-based, no LLM call); Engine B scans the generated code with two independent
+static analysers; Engine C feeds findings back to the \emph{same} model for up to
+three repair rounds; Engine D executes the final code against per-prompt functional
+tests, which is what makes a ``clean'' verdict falsifiable (RQ5).}
+\label{fig:pipeline}
+\end{figure}
