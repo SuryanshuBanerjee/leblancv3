@@ -6,77 +6,99 @@
 <title>LeBlanc v3</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
+  /* ---- LeBlanc v3 — light, academic, flat. Palette: dataviz skill reference
+     instance (references/palette.md) — categorical blue/orange/aqua for the
+     G1/G2/G3 generation buckets (identity, not a value judgment), fixed status
+     colors for outcome badges, single-hue red ramp for the RQ4 risk heatmap. ---- */
   :root{
-    --bg:#0d1117; --panel:#161b22; --panel2:#1c2330; --border:#2d333b;
-    --text:#e6edf3; --dim:#8b949e; --accent:#58a6ff; --good:#3fb950;
-    --warn:#d29922; --bad:#f85149; --purple:#bc8cff;
-    --g1:#f85149; --g2:#d29922; --g3:#3fb950;
+    --page:#f9f9f7; --surface:#ffffff; --surface-2:#f4f4f2;
+    --border:#e1e0d9; --border-strong:rgba(11,11,11,.14);
+    --text:#0b0b0b; --text-2:#52514e; --muted:#898781;
+    --accent:#2a78d6; --accent-dark:#184f95;
+    --good:#0a6e0a; --good-bg:#eaf7ea; --good-bd:#bfe8bf;
+    --warn:#8a5a00; --warn-bg:#fff4e0; --warn-bd:#f5dca3;
+    --bad:#a32b2b; --bad-bg:#fbe9e7; --bad-bd:#f3c6c2;
+    --violet:#4a3aa7;
+    --g1:#184f95; --g1-bg:#eaf2fc; --g1-bd:#bcd6f4;
+    --g2:#a34419; --g2-bg:#fdf1e7; --g2-bd:#f3cdb0;
+    --g3:#0f7a52; --g3-bg:#e9f8f1; --g3-bd:#b7e4cf;
   }
   *{box-sizing:border-box; margin:0}
-  body{background:var(--bg); color:var(--text); font:15px/1.55 system-ui,Segoe UI,sans-serif}
+  html{color-scheme:light}
+  body{background:var(--page); color:var(--text); font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}
   a{color:var(--accent)}
-  header{padding:18px 28px; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:16px; flex-wrap:wrap}
-  header h1{font-size:22px} header .sub{color:var(--dim); font-size:13px; max-width:700px}
-  nav{display:flex; gap:4px; padding:10px 24px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--bg); z-index:5; flex-wrap:wrap}
-  nav button{background:none; border:1px solid transparent; color:var(--dim); padding:7px 14px; border-radius:8px; cursor:pointer; font-size:14px}
-  nav button.active{color:var(--text); background:var(--panel); border-color:var(--border)}
-  main{padding:24px; max-width:1200px; margin:0 auto}
-  .card{background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:18px}
-  .card h2{font-size:17px; margin-bottom:6px}
-  .card h3{font-size:14px; color:var(--dim); margin:14px 0 6px}
-  .formula{font-family:ui-monospace,Consolas,monospace; font-size:13px; background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px 12px; margin:8px 0; color:var(--purple); overflow-x:auto}
-  .read{font-size:13.5px; color:var(--dim); border-left:3px solid var(--accent); padding:2px 10px; margin:8px 0}
-  .pill{display:inline-block; font-size:12px; padding:2px 10px; border-radius:999px; border:1px solid var(--border); margin:2px; color:var(--dim)}
-  .pill.ok{color:var(--good); border-color:var(--good)}
-  .pill.no{color:var(--bad); border-color:var(--bad)}
-  .pill.g1{color:var(--g1); border-color:var(--g1)} .pill.g2{color:var(--g2); border-color:var(--g2)} .pill.g3{color:var(--g3); border-color:var(--g3)}
-  .notice{background:#1c2128; border:1px dashed var(--warn); color:var(--warn); border-radius:8px; padding:10px 14px; font-size:13.5px; margin:10px 0}
+  header{background:var(--surface); padding:20px 28px; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:16px; flex-wrap:wrap}
+  header h1{font-size:21px; font-weight:700; letter-spacing:-.01em}
+  header h1 span{color:var(--accent)}
+  header .sub{color:var(--text-2); font-size:13px; max-width:720px}
+  nav{display:flex; gap:2px; padding:0 24px; border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface); z-index:5; flex-wrap:wrap}
+  nav button{background:none; border:none; border-bottom:2px solid transparent; color:var(--muted); padding:13px 14px; cursor:pointer; font-size:13.5px; font-weight:500; font-family:inherit}
+  nav button:hover{color:var(--text)}
+  nav button.active{color:var(--text); border-bottom-color:var(--accent)}
+  main{padding:28px 24px 60px; max-width:1200px; margin:0 auto}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:22px; margin-bottom:18px}
+  .card h2{font-size:16px; font-weight:600; margin-bottom:6px; letter-spacing:-.005em}
+  .card h3{font-size:12.5px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; margin:16px 0 8px}
+  .formula{font-family:ui-monospace,"SF Mono",Consolas,monospace; font-size:12.5px; background:var(--surface-2); border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:4px; padding:10px 12px; margin:8px 0; color:var(--accent-dark); overflow-x:auto}
+  .read{font-size:13.5px; color:var(--text-2); border-left:3px solid var(--border-strong); padding:2px 12px; margin:8px 0}
+  .pill{display:inline-block; font-size:11.5px; padding:2px 9px; border-radius:99px; border:1px solid var(--border); margin:2px; color:var(--text-2); background:var(--surface-2); font-weight:500}
+  .pill.ok{color:var(--good); border-color:var(--good-bd); background:var(--good-bg)}
+  .pill.no{color:var(--bad); border-color:var(--bad-bd); background:var(--bad-bg)}
+  .pill.g1{color:var(--g1); border-color:var(--g1-bd); background:var(--g1-bg)}
+  .pill.g2{color:var(--g2); border-color:var(--g2-bd); background:var(--g2-bg)}
+  .pill.g3{color:var(--g3); border-color:var(--g3-bd); background:var(--g3-bg)}
+  .notice{background:var(--warn-bg); border:1px solid var(--warn-bd); border-left:3px solid var(--warn); color:var(--warn); border-radius:4px; padding:10px 14px; font-size:13.5px; margin:10px 0}
   table{width:100%; border-collapse:collapse; font-size:13.5px}
-  th,td{text-align:left; padding:7px 10px; border-bottom:1px solid var(--border)}
-  th{color:var(--dim); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em}
-  tr.click{cursor:pointer} tr.click:hover{background:var(--panel2)}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--border)}
+  th{color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em}
+  tbody tr:hover{background:var(--surface-2)}
+  tr.click{cursor:pointer}
   .grid2{display:grid; grid-template-columns:1fr 1fr; gap:18px}
   @media(max-width:900px){.grid2{grid-template-columns:1fr}}
   .flow{display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:14px 0}
-  .stage{flex:1; min-width:150px; background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:12px; margin:4px; text-align:center}
-  .stage b{display:block; margin-bottom:4px; color:var(--accent)} .stage span{font-size:12.5px; color:var(--dim)}
-  .arrow{align-self:center; color:var(--dim); font-size:20px; padding:0 2px}
-  select,textarea,button.action{background:var(--panel2); color:var(--text); border:1px solid var(--border); border-radius:8px; padding:9px 12px; font-size:14px}
+  .stage{flex:1; min-width:150px; background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:12px; margin:4px; text-align:center}
+  .stage b{display:block; margin-bottom:4px; color:var(--accent-dark); font-size:13px} .stage span{font-size:12px; color:var(--text-2)}
+  .arrow{align-self:center; color:var(--muted); font-size:18px; padding:0 4px}
+  select,textarea,button.action{background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:5px; padding:9px 12px; font-size:14px; font-family:inherit}
+  select:focus,textarea:focus{outline:2px solid var(--accent); outline-offset:-1px; border-color:var(--accent)}
   textarea{width:100%; min-height:110px; font-family:ui-monospace,Consolas,monospace}
-  button.action{cursor:pointer} button.action:hover{border-color:var(--accent)}
-  button.action.spend{border-color:var(--warn); color:var(--warn)}
+  button.action{cursor:pointer; font-weight:500} button.action:hover{border-color:var(--accent); color:var(--accent-dark)}
+  button.action.spend{border-color:var(--warn-bd); color:var(--warn); background:var(--warn-bg)}
+  button.action.spend:hover{border-color:var(--warn)}
+  button.action:disabled{opacity:.55; cursor:default}
   .chartbox{position:relative; height:280px; margin-top:10px}
-  .badge{font-size:12px; padding:2px 8px; border-radius:6px}
-  .s-clean,.s-pass{background:#12261e; color:var(--good)} .s-vulnerable,.s-not_converged,.s-fail{background:#2d1a1b; color:var(--bad)}
-  .s-llm_error,.s-extraction_failed,.s-timeout,.s-harness_error{background:#2b2416; color:var(--warn)}
+  .badge{font-size:11.5px; padding:2px 9px; border-radius:4px; font-weight:600; border:1px solid transparent}
+  .s-clean,.s-pass{background:var(--good-bg); color:var(--good); border-color:var(--good-bd)}
+  .s-vulnerable,.s-not_converged,.s-fail{background:var(--bad-bg); color:var(--bad); border-color:var(--bad-bd)}
+  .s-llm_error,.s-extraction_failed,.s-timeout,.s-harness_error{background:var(--warn-bg); color:var(--warn); border-color:var(--warn-bd)}
   .heat{display:grid; gap:4px; margin-top:12px}
-  .heatcell{border-radius:6px; padding:10px 6px; text-align:center; font-size:12.5px; border:1px solid var(--border)}
-  #modal{position:fixed; inset:0; background:rgba(0,0,0,.65); display:none; align-items:flex-start; justify-content:center; padding:40px; z-index:20; overflow:auto}
-  #modal .inner{background:var(--panel); border:1px solid var(--border); border-radius:12px; max-width:1500px; width:100%; padding:22px}
-  pre{background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:12px; font-size:12.5px; overflow-x:auto; white-space:pre-wrap}
-  .kv{display:flex; gap:24px; flex-wrap:wrap; margin:10px 0}
-  .kv div b{display:block; font-size:20px} .kv div span{font-size:12px; color:var(--dim)}
+  .heatcell{border-radius:4px; padding:10px 6px; text-align:center; font-size:12.5px; border:1px solid var(--border)}
+  #modal{position:fixed; inset:0; background:rgba(11,11,11,.45); display:none; align-items:flex-start; justify-content:center; padding:40px; z-index:20; overflow:auto}
+  #modal .inner{background:var(--surface); border:1px solid var(--border); border-radius:8px; max-width:1500px; width:100%; padding:24px; box-shadow:0 12px 32px rgba(11,11,11,.16)}
+  pre{background:var(--surface-2); border:1px solid var(--border); border-radius:5px; padding:12px; font-size:12.5px; overflow-x:auto; white-space:pre-wrap; font-family:ui-monospace,Consolas,monospace}
+  .kv{display:flex; gap:28px; flex-wrap:wrap; margin:10px 0}
+  .kv div b{display:block; font-size:21px; font-weight:700} .kv div span{font-size:12px; color:var(--muted)}
 
   /* ---- stage-by-stage pipeline viewer ---- */
   .stagegrid{display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:14px; margin:14px 0}
-  .stagecard{background:var(--panel2); border:1px solid var(--border); border-radius:10px; padding:0; overflow:hidden; display:flex; flex-direction:column}
-  .stagecard .stagehead{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); background:rgba(255,255,255,.02)}
-  .stagecard .stagehead b{font-size:13px} .stagecard .stagehead .note{font-size:11.5px; color:var(--dim)}
+  .stagecard{background:var(--surface); border:1px solid var(--border); border-radius:6px; padding:0; overflow:hidden; display:flex; flex-direction:column}
+  .stagecard .stagehead{display:flex; align-items:center; justify-content:space-between; gap:8px; padding:9px 12px; border-bottom:1px solid var(--border); background:var(--surface-2)}
+  .stagecard .stagehead b{font-size:12.5px} .stagecard .stagehead .note{font-size:11.5px; color:var(--muted)}
   .stagecard .codebox{max-height:340px; overflow:auto; font-family:ui-monospace,Consolas,monospace; font-size:12px}
   .codeline{display:flex; padding:0 8px; white-space:pre-wrap; word-break:break-all}
-  .codeline .ln{flex:0 0 34px; text-align:right; margin-right:10px; color:#4b535d; user-select:none}
+  .codeline .ln{flex:0 0 34px; text-align:right; margin-right:10px; color:var(--muted); user-select:none}
   .codeline .lc{flex:1}
-  .codeline.flag-high{background:rgba(248,81,73,.16); border-left:3px solid var(--bad)}
-  .codeline.flag-med{background:rgba(210,153,34,.14); border-left:3px solid var(--warn)}
+  .codeline.flag-high{background:rgba(163,43,43,.09); border-left:3px solid var(--bad)}
+  .codeline.flag-med{background:rgba(138,90,0,.10); border-left:3px solid var(--warn)}
   .flagmark{color:var(--bad); font-size:10.5px; margin-left:8px; white-space:nowrap}
   .flag-med .flagmark{color:var(--warn)}
-  .stagecard.empty .codebox{padding:14px; color:var(--dim); font-size:12.5px; font-style:italic}
+  .stagecard.empty .codebox{padding:14px; color:var(--muted); font-size:12.5px; font-style:italic}
   .cwechips{display:flex; flex-wrap:wrap; gap:4px; margin:6px 0}
 </style>
 </head>
 <body>
 <header>
-  <h1>LeBlanc <span style="color:var(--accent)">v3</span></h1>
+  <h1>LeBlanc <span>v3</span></h1>
   <div class="sub" id="thesis">…</div>
 </header>
 <nav id="nav">
@@ -106,7 +128,7 @@
         <div class="arrow">→</div>
         <div class="stage"><b>Engine D</b><span>Functional tests check the “fixed” code still actually works</span></div>
       </div>
-      <p style="color:var(--dim); font-size:13.5px">Three modes are compared per prompt: <b>plain</b> (no help),
+      <p style="color:var(--text-2); font-size:13.5px">Three modes are compared per prompt: <b>plain</b> (no help),
       <b>enriched</b> (Engine A only), <b>enriched_repair</b> (full loop). Differences between modes across
       model generations = the research result.</p>
     </div>
@@ -119,9 +141,9 @@
           <li><b>RQ2</b> — Does warning the model up-front (enrichment) still help?</li>
           <li><b>RQ3</b> — Does the repair loop converge, and how fast?</li>
           <li><b>RQ4</b> — Which vulnerability types <i>still</i> survive everything, in 2026 models?</li>
-          <li><b>RQ5</b> — <span style="color:var(--purple)">How often is “successfully repaired” code secretly broken?</span> (headline)</li>
+          <li><b>RQ5</b> — <span style="color:var(--violet)">How often is “successfully repaired” code secretly broken?</span> (headline)</li>
         </ol>
-        <p style="font-size:13px; color:var(--dim); margin-top:8px">Full definitions with hypotheses &amp; statistics live in
+        <p style="font-size:13px; color:var(--muted); margin-top:8px">Full definitions with hypotheses &amp; statistics live in
         <code>docs/01_RESEARCH_QUESTIONS.md</code> — the Research tab shows each formula next to its live numbers.</p></div>
     </div>
   </section>
@@ -135,14 +157,14 @@
   <section id="tab-lab" hidden>
     <div class="card">
       <h2>Engine A playground <span class="pill ok">free — no API calls</span></h2>
-      <p style="font-size:13.5px;color:var(--dim)">Type any coding request. Watch the retrieval algorithm decide which CWE warnings to inject, with its evidence (keyword hits + cosine similarity).</p>
+      <p style="font-size:13.5px;color:var(--text-2)">Type any coding request. Watch the retrieval algorithm decide which CWE warnings to inject, with its evidence (keyword hits + cosine similarity).</p>
       <textarea id="lab-prompt" placeholder="e.g. Write a Flask endpoint that lets a user download a file by name"></textarea>
       <div style="margin-top:10px"><button class="action" onclick="labEnrich()">Analyze prompt</button></div>
       <div id="lab-enrich-out"></div>
     </div>
     <div class="card">
       <h2>Single pipeline run <span class="pill no">spends 1–4 API calls</span></h2>
-      <p style="font-size:13.5px;color:var(--dim)">Runs one prompt through the full loop on one model. This is the only way the web UI can spend tokens — batch experiments are CLI-only (<code>run_batch.py</code>) with a cost gate.</p>
+      <p style="font-size:13.5px;color:var(--text-2)">Runs one prompt through the full loop on one model. This is the only way the web UI can spend tokens — batch experiments are CLI-only (<code>run_batch.py</code>) with a cost gate.</p>
       <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:8px">
         <select id="run-prompt"></select>
         <select id="run-model"></select>
@@ -159,7 +181,7 @@
   <section id="tab-history" hidden>
     <div class="card">
       <h2>All recorded runs</h2>
-      <p style="font-size:13px;color:var(--dim)">Every row is one (prompt × model × mode × repetition). Click a row for the full record including repair iterations and code.</p>
+      <p style="font-size:13px;color:var(--text-2)">Every row is one (prompt × model × mode × repetition). Click a row for the full record including repair iterations and code.</p>
       <div style="overflow-x:auto"><table id="hist-table"><thead><tr>
         <th>id</th><th>prompt</th><th>model</th><th>gen</th><th>mode</th><th>rep</th>
         <th>vulns</th><th>status</th><th>func test</th><th>iters</th><th>scanners</th>
@@ -171,7 +193,7 @@
   <section id="tab-dataset" hidden>
     <div class="card">
       <h2>The 50 prompts</h2>
-      <p style="font-size:13px;color:var(--dim)">L### = original realistic scenarios · S### = SecurityEval benchmark (provenance = exact source file). Every prompt is unique — duplication is a v2 sin we don't repeat.</p>
+      <p style="font-size:13px;color:var(--text-2)">L### = original realistic scenarios · S### = SecurityEval benchmark (provenance = exact source file). Every prompt is unique — duplication is a v2 sin we don't repeat.</p>
       <div style="overflow-x:auto"><table id="ds-table"><thead><tr>
         <th>id</th><th>category</th><th>target CWEs</th><th>source</th><th>prompt (start)</th>
       </tr></thead><tbody></tbody></table></div>
@@ -185,6 +207,9 @@
 const $=q=>document.querySelector(q);
 const api=p=>fetch(p).then(r=>r.json());
 let META=null, CHARTS=[];
+Chart.defaults.color = '#52514e';
+Chart.defaults.borderColor = '#e1e0d9';
+Chart.defaults.font.family = 'system-ui,-apple-system,"Segoe UI",sans-serif';
 
 /* ---------- nav ---------- */
 document.getElementById('nav').addEventListener('click',e=>{
@@ -232,14 +257,21 @@ async function loadResearch(){
   c.innerHTML=['rq1','rq2','rq3','rq4','rq5'].map(k=>rqCard(m[k],k)).join('');
   renderRQ1(m.rq1); renderRQ2(m.rq2); renderRQ3(m.rq3); renderRQ4(m.rq4); renderRQ5(m.rq5);
 }
-const GENC={G1:'#f85149',G2:'#d29922',G3:'#3fb950','?':'#8b949e'};
+/* Categorical palette, dataviz reference instance — identity color for the
+   generation bucket, not a value judgment (G1 isn't "bad" for being blue). */
+const GENC={G1:'#2a78d6',G2:'#eb6834',G3:'#1baf7a','?':'#898781'};
+/* Text-safe (WCAG-contrast) versions of the same identity colors, for small
+   text like the heatmap column headers — chart fills use GENC directly since
+   every chart here ships its data table alongside it (the palette's "relief"
+   rule for the sub-3:1 aqua slot). */
+const GENC_TEXT={G1:'#184f95',G2:'#a34419',G3:'#0f7a52','?':'#898781'};
 function bar(el,labels,data,colors,ylabel,extra={}){
   const ctx=document.createElement('canvas');
   const box=document.createElement('div'); box.className='chartbox'; box.appendChild(ctx); el.appendChild(box);
   CHARTS.push(new Chart(ctx,{type:'bar',
-    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:6}]},
+    data:{labels,datasets:[{data,backgroundColor:colors,borderRadius:3}]},
     options:{plugins:{legend:{display:false}},maintainAspectRatio:false,
-      scales:{y:{beginAtZero:true,max:extra.max??100,title:{display:true,text:ylabel},grid:{color:'#2d333b'}},x:{grid:{display:false}}}}}));
+      scales:{y:{beginAtZero:true,max:extra.max??100,title:{display:true,text:ylabel,color:'#52514e'},grid:{color:'#e1e0d9'},ticks:{color:'#898781'}},x:{grid:{display:false},ticks:{color:'#898781'}}}}}));
 }
 function modelTable(per,cols){
   let h='<div style="overflow-x:auto"><table><thead><tr><th>model</th><th>gen</th>'+cols.map(c=>`<th>${c[1]}</th>`).join('')+'</tr></thead><tbody>';
@@ -268,21 +300,24 @@ function renderRQ4(rq){const el=$('#rq4-body'); if(!el)return;
   if(!rq.categories.length){el.innerHTML='';return;}
   const gens=rq.generations;
   let h=`<div class="heat" style="grid-template-columns:140px repeat(${gens.length},1fr)">`;
-  h+=`<div></div>`+gens.map(g=>`<div class="heatcell" style="border:none;color:${GENC[g]}"><b>${g}</b></div>`).join('');
+  h+=`<div></div>`+gens.map(g=>`<div class="heatcell" style="border:none;color:${GENC_TEXT[g]}"><b>${g}</b></div>`).join('');
   for(const cat of rq.categories){
     h+=`<div class="heatcell" style="border:none;text-align:right">${cat}</div>`;
     for(const g of gens){
       const c=rq.grid[cat][g], r=c.rate;
-      const bg = r===null? 'var(--panel2)' : `rgba(248,81,73,${Math.max(.08,r/100*.85)})`;
-      h+=`<div class="heatcell" style="background:${bg}">${r===null?'—':r+'%'}<br><span style="color:var(--dim)">n=${c.n}</span></div>`;
+      /* single-hue sequential red ramp — risk heatmap, redder = more residual vulnerability */
+      const alpha = r===null? 0 : Math.max(.06,r/100*.85);
+      const bg = r===null? 'var(--surface-2)' : `rgba(163,43,43,${alpha})`;
+      const txt = r!==null && r>45 ? '#fff' : 'var(--text)';
+      h+=`<div class="heatcell" style="background:${bg};color:${txt}">${r===null?'—':r+'%'}<br><span style="color:${r!==null&&r>45?'rgba(255,255,255,.75)':'var(--muted)'}">n=${c.n}</span></div>`;
     }
   }
-  el.innerHTML=h+'</div><p style="font-size:12.5px;color:var(--dim);margin-top:8px">Redder = more residual vulnerability after the FULL loop. The G3 column is the paper’s payoff.</p>';
+  el.innerHTML=h+'</div><p style="font-size:12.5px;color:var(--muted);margin-top:8px">Redder = more residual vulnerability after the FULL loop. The G3 column is the paper’s payoff.</p>';
 }
 function renderRQ5(rq){const el=$('#rq5-body'); if(!el)return;
   el.innerHTML=modelTable(rq.per_model,[['repair_success_claims','“repaired” claims'],['functionally_tested','tested'],['secretly_broken','broken'],['repair_inflation_rate','RIR %'],['awaiting_tests','awaiting tests']]);
   const ms=Object.entries(rq.per_model).filter(([,v])=>v.repair_inflation_rate!==null);
-  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.repair_inflation_rate),ms.map(([,v])=>'#bc8cff'),'repair inflation rate %');
+  if(ms.length) bar(el,ms.map(([m])=>m),ms.map(([,v])=>v.repair_inflation_rate),ms.map(([,v])=>'#4a3aa7'),'repair inflation rate %');
 }
 
 /* ---------- lab ---------- */
@@ -315,7 +350,7 @@ async function loadHistory(){
      <td>${r.mode}</td><td>${r.rep}</td><td>${r.vuln_count}</td>
      <td><span class="badge s-${r.final_status}">${r.final_status}</span></td>
      <td>${r.functest_status||'—'}</td><td>${r.total_iterations}</td><td>${(r.scanners||[]).join('+')}</td></tr>`).join('')
-    || '<tr><td colspan="11" style="color:var(--dim)">No runs yet — use the Lab or run_batch.py</td></tr>';
+    || '<tr><td colspan="11" style="color:var(--muted)">No runs yet — use the Lab or run_batch.py</td></tr>';
 }
 async function showRun(id){
   const r=await api('/api/run_detail/'+id);
@@ -360,7 +395,7 @@ function renderRunDetail(r){
   }
 
   // ---- Stage grid: raw generation -> extraction+scan -> each repair round -> final ----
-  h+=`<h3>Pipeline stages <span style="font-weight:400;color:var(--dim);font-size:12.5px">— red/amber lines are scanner findings; hover a line for detail</span></h3><div class="stagegrid">`;
+  h+=`<h3>Pipeline stages <span style="font-weight:400;color:var(--muted);font-size:12.5px;text-transform:none;letter-spacing:0">— red/amber lines are scanner findings; hover a line for detail</span></h3><div class="stagegrid">`;
   const extractOk = !!r.clean_code;
   h+=stageCard('1 · Raw generation', extractOk?'✓ extracted cleanly':'✖ extraction/syntax failed',
     r.generated_code, null, 'no output — LLM call failed (see error above)');
@@ -382,7 +417,7 @@ function renderRunDetail(r){
   // ---- Functional test verdict ----
   h+=`<h3>Functional test (Engine D)</h3>`;
   if(!r.functest_status || r.functest_status==='no_tests'){
-    h+=`<div class="notice" style="border-color:var(--border);color:var(--dim)">No functional test exists for ${r.prompt_id} — excluded by design (see dataset/tests/MANIFEST.md). Security findings above still count toward RQ1–RQ4.</div>`;
+    h+=`<div class="notice" style="background:var(--surface-2);border-color:var(--border);color:var(--text-2)">No functional test exists for ${r.prompt_id} — excluded by design (see dataset/tests/MANIFEST.md). Security findings above still count toward RQ1–RQ4.</div>`;
   } else {
     h+=`<span class="badge s-${r.functest_status}">${r.functest_status}</span>`;
     if(r.functest_detail) h+=`<pre>${esc(r.functest_detail)}</pre>`;
@@ -394,8 +429,8 @@ async function loadDataset(){
   const ds=await api('/api/prompts');
   $('#ds-table tbody').innerHTML=ds.map(p=>
     `<tr><td>${p.id}</td><td>${p.category}</td><td>${p.target_cwes.join(', ')}</td>
-     <td style="color:var(--dim)">${p.source}${p.source_file?(' · '+p.source_file):''}</td>
-     <td style="color:var(--dim)">${esc(p.prompt).slice(0,90)}…</td></tr>`).join('');
+     <td style="color:var(--muted)">${p.source}${p.source_file?(' · '+p.source_file):''}</td>
+     <td style="color:var(--muted)">${esc(p.prompt).slice(0,90)}…</td></tr>`).join('');
 }
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 </script>
