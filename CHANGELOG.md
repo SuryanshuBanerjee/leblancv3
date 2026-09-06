@@ -5,6 +5,52 @@ without reading diffs.
 
 ---
 
+## 2026-09-07 (final) — adversarial audit: untested paths, and a health check
+
+Previous passes tested things that were already working. This one deliberately broke things —
+empty database, a single row, zero-variance data, unknown models, null categories, a hostile
+sandbox, CLI misuse, and a clean clone with nothing but committed files.
+
+**Verdict: the system is plug-and-play.** A fresh clone installs, self-checks, boots the
+dashboard with no database, passes 45 tests, passes the dataset gate, and compiles the paper —
+with zero manual setup. Every entry point degrades gracefully on missing or partial data rather
+than crashing: the analysis says "no runs yet", the audit says "no findings yet", the dashboard
+returns 200s, and the batch runner reports an empty matrix.
+
+### One real defect found
+
+- **An API failure during repair was recorded as `extraction_failed`.** A dropped connection
+  and a model returning unparseable text are different facts — the first says nothing about the
+  model's code, the second is evidence about it. Now `llm_error`. Same class of bug as the
+  `no_code` fix earlier today, found the same way: by asking what each status actually claims.
+
+### Documentation
+
+- **Every module and every top-level public function now has a docstring** — verified by AST
+  walk, not by eye. About 30 were missing, including all of `database.py`'s public surface, the
+  Flask routes, and `cwe_categories.py` (which had no module docstring at all, against the
+  project's own stated convention). They explain *why* where the reason isn't obvious: why
+  `has_run()` deliberately retries `llm_error` cells, why the `-ll` severity filter does real
+  work (a literal `os.system("ls")` is LOW; `os.system("ls " + input())` is HIGH), why
+  categories are rule-first and CWE-second.
+
+### New: `python selfcheck.py`
+
+13 checks in ~60s, free and offline, exit code 0/1. Several are regression guards for bugs
+found today rather than generic smoke tests — if the cross-tool dedup check or the
+crashed-scanner check goes red, a specific known failure has returned. Wired into RUNBOOK
+step 0, so the first thing anyone runs proves the system before it spends money.
+
+### Also verified this pass
+
+Engine D survives an infinite loop (times out at 30s), a missing import, a syntax error, and
+code that calls `sys.exit`. The cost gate refuses paid models without `--yes`. Unknown model
+names fail loudly. A real 6-cell batch ran end to end through all four engines and wrote
+correct provenance. Every command and flag in every doc exists. No bare `except: pass` remains
+anywhere. Nothing gitignored is required to run.
+
+---
+
 ## 2026-09-07 (later) — research-validity pass: statistics hardened, engines tested
 
 The first pass fixed bugs and built the analysis. This one fixes the *reasoning* — every
