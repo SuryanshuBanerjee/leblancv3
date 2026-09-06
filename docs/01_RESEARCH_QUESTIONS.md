@@ -61,6 +61,21 @@ correctness is not checked?
     — the fraction of "successfully repaired" runs whose code no longer works.
 - **Test:** report RIR per model with CIs; McNemar's on secure vs secure-pass; qualitative
   coding of HOW repairs break functionality (deletion, stub-out, API change) on a 20-run sample.
+
+- **Control (added 2026-09-07 — this was missing and it matters):** RIR on its own does **not**
+  establish that repair caused the breakage. Code the model wrote clean on the first try, with
+  Engine C never invoked, also fails functional tests at some baseline rate (strict tests, hard
+  tasks, sandbox mismatches). The quantity that supports the causal claim is the difference:
+
+  `attributable = P(¬pass | secure, repaired) − P(¬pass | secure, never repaired)`
+
+  computed with Fisher's exact test by `analysis/rq_analysis.py` (`repair_attribution`).
+  **Pilot signal (n=8 repaired, directional only): 62.5% vs 50.0%, attributable ≈ +12.5pp,
+  p=0.72 — nowhere near significance.** If that pattern survives the full run, the honest
+  headline is *"scanner-clean LLM code frequently does not work"* — a direct, publishable
+  extension of CODEGUARD+/CodeSecEval's secure-pass argument — and **not** *"the repair loop
+  breaks code."* Write whichever sentence the number supports; both are findings, only one is
+  licensed by any given result.
 - **Hypothesis H5:** RIR ≥ 15% on average — i.e., naive repair metrics (including prior
   work's) meaningfully overstate success. *No prior work measures this inside an iterative
   scanner-feedback loop; this is our sharpest contribution.*
@@ -102,6 +117,30 @@ Two rules for using this table honestly:
 1. **False-positive audit:** stratified 10% sample of all findings, independently labeled
    TP/FP by two annotators (Suryanshu + Ayushi), Cohen's κ reported. If FP rate > 20%,
    it is prominently reported and RQ interpretations hedged accordingly.
+
+   **Tooling (2026-09-07):** `analysis/fp_audit.py --sample` draws the sample (stratified by
+   tool × category, fixed seed, so both annotators label the identical set) and writes a
+   worksheet showing every finding against its actual line of code; `--score` computes the FP
+   rate, and Cohen's κ when two labelled copies exist. With only one labelled copy it reports
+   the rate but prints — and records in `fp_audit_result.json` — that this is a
+   **single-annotator triage, not the two-annotator protocol, and no κ exists**. The paper must
+   use whichever description is true of what was actually done.
+
+   **First result (2026-09-07, single-annotator triage of the pilot, n=28): FP rate ≈ 53.6%.**
+   That is far above the 20% threshold, so the hedging clause above is now *active*, not
+   hypothetical. It is concentrated rather than diffuse — three rule families produce nearly all
+   of it: pyCrypto-namespace deprecation (Bandit cannot distinguish maintained pycryptodome from
+   abandoned pycrypto), `host="0.0.0.0"` binding (correct and required in a container), and
+   RSA-2048 flagged as insufficient (policy-strict; 2048 is NIST-acceptable through 2030).
+   **Required consequence:** report headline rates *and* a sensitivity analysis excluding those
+   rule families, and state the FP rate in the abstract, not only in Threats to Validity.
+
+1b. **Finding composition (added 2026-09-07):** report what share of findings land on
+   `app.run()` / `if __name__ == "__main__":` scaffolding the model volunteers rather than on
+   the function the prompt requested (**62% in the pilot**). A vulnerability rate that is mostly
+   Flask demo boilerplate measures something other than "can this model write a secure
+   implementation," and a reviewer will say so if we don't. Computed automatically by
+   `analysis/rq_analysis.py`.
 2. **Repetitions:** 3 reps per cell, temperature 0.7 (raised from 0.2 so reps are
    genuine independent samples, not near-duplicates). Per-rep variance reported;
    a result that flips across reps is reported as unstable, not cherry-picked.

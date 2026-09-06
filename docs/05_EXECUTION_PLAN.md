@@ -20,7 +20,13 @@
 - `run_batch.py` — idempotent batch runner per contract in 03_METHODOLOGY.md
 - `dataset/tests/<id>_test.py` + `dataset/reference/<id>.py` for every testable
   prompt (final: 20 of 50; the rest excluded by design — see the M2 manifest)
-- `analysis/rq_analysis.ipynb` — all stats, figures, tables
+- `analysis/rq_analysis.py` — all stats, figures, tables (✅ built 2026-09-07; shipped as a
+  script rather than the originally-planned notebook: one command, deterministic, no kernel
+  state or hidden cell order)
+- `analysis/fp_audit.py` — false-positive audit sampler + scorer (✅ built 2026-09-07)
+- `paper/leblanc_paper.tex` — compiling paper skeleton, all numbers as red placeholders
+  (✅ built 2026-09-07)
+- `RUNBOOK.md` — the remaining work expressed purely as commands (✅ 2026-09-07)
 
 ## Milestones (each has a hard gate; no gate, no next milestone)
 
@@ -30,9 +36,9 @@
 | **M1** | Harness: fleet rewrite, Semgrep restored, batch runner, preflight | `run_batch.py --preflight` green on all 6 models; 1 prompt × 6 × 3 runs clean end-to-end | ✅ done 2026-07-14 (free models green; paid pending keys) |
 | **M1.5** | Frontend (teaching UI), metrics engine (RQ1–RQ5), MCP server, cost gate | dashboard boots, all APIs respond, MCP tools callable, batch refuses paid runs w/o `--yes` | ✅ done 2026-07-14 |
 | **M2** | Functional tests + reference solutions | every test passes on its reference solution (`validate_m2.py` green); dataset FROZEN | ✅ done 2026-07-14: 20/50 tested, gate GREEN, dataset FROZEN (see `dataset/tests/MANIFEST.md`). Offline harness (fake MySQL/LDAP/network in `dataset/tests/_harness/`) doubled the pre-harness ceiling of ~10–12. The 30 untested prompts are excluded by design with per-prompt reasons; they drive RQ1–RQ4 only. |
-| **M3** | Pilot: 5 prompts × 6 models × 3 modes × 1 rep (90 runs) + FP audit dry-run | <10% llm_error; both annotators complete pilot FP labels; κ computed | 2–3 days |
-| **M4** | Full run: 2,700 runs (overnight sessions, resumable) | cell-completeness matrix 100%; DB backed up | ~1 week wall-clock |
-| **M5** | Analysis + figures + 10% FP audit | notebook reproduces every figure from DB alone | ~1 week |
+| **M3** | Pilot + FP audit dry-run | <10% llm_error; both annotators complete pilot FP labels; κ computed | 🟡 partial — 450 cells ran 2026-09-01 (1 rep, 3 models); FP audit **tooling built and a single-annotator triage run** (53.6%, `analysis/output/fp_audit_worksheet.md`), two-annotator κ still outstanding |
+| **M4** | Full run: 2,700 runs (overnight sessions, resumable) | cell-completeness matrix 100%; DB backed up | ~1 week wall-clock — **this is now the only blocking step**; see `RUNBOOK.md` |
+| **M5** | Analysis + figures + 10% FP audit | analysis reproduces every figure from DB alone | ✅ **code complete 2026-09-07** — `analysis/rq_analysis.py` + `analysis/fp_audit.py` run end-to-end on the pilot DB and regenerate everything; only needs M4's data to produce final numbers |
 | **M6** | Paper draft → arXiv → venue submission | co-authors + guide sign off | ~2–3 weeks |
 
 ## Risk register (carried over from v2's corpses)

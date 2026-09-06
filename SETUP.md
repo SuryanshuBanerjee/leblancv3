@@ -26,9 +26,11 @@ ANTHROPIC_API_KEY=...   # claude-haiku-4.5
 DEEPSEEK_API_KEY=...    # deepseek-chat  (cheapest current-gen option)
 ```
 
-The 3 free models (gpt-oss-20b, gpt-oss-120b, gemini-2.5-flash — Groq's `openai/gpt-oss-*`
-open-weight models, substituted 2026-09-01 after Groq retired llama-3.1-8b-instant and
-llama-3.3-70b-versatile) need no new keys.
+Only the two Groq models (gpt-oss-20b, gpt-oss-120b — substituted 2026-09-01 after Groq retired
+llama-3.1-8b-instant and llama-3.3-70b-versatile) are free. **`gemini-2.5-flash` moved to paid
+billing on 2026-09-07**; it is still the cheapest of the paid models (~$2 for a full run) and is
+the G3 anchor, so keep it in the fleet — just know it costs something now. The cost gate prices
+it correctly and will ask before spending.
 
 ## 3. Launch the dashboard
 
@@ -52,10 +54,10 @@ python run_batch.py --preflight        # 1 tiny call per model; shows which keys
   unless you pass `--yes`. Free-tier-only plans always cost $0 and run immediately.
 
 ```bash
-# free pilot (costs $0, ~450 runs, resumable):
-python run_batch.py --models gpt-oss-20b gpt-oss-120b gemini-2.5-flash --modes all --reps 1
+# genuinely free pilot (Groq only, $0, ~300 runs, resumable):
+python run_batch.py --models gpt-oss-20b gpt-oss-120b --modes all --reps 1
 
-# full experiment incl. paid models (~$6 estimated, must confirm):
+# full experiment, all 6 models (~$8 estimated, must confirm):
 python run_batch.py --models all --modes all --reps 3 --yes
 
 python run_batch.py --report            # completeness matrix anytime

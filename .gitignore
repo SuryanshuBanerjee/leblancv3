@@ -12,8 +12,14 @@ backend/scan_tmp/
 # generated / local state — not source, regenerate via run_batch.py / validate_m2.py
 backend/leblanc_v3.db
 backend/leblanc_v3.db-journal
+backend/*.db.bak*
+analysis/output/
 
 # LaTeX build junk (keep .tex source and .pdf output, drop the rest)
+paper/*.aux
+paper/*.log
+paper/*.out
+paper/*.toc
 reports/*.aux
 reports/*.log
 reports/*.out

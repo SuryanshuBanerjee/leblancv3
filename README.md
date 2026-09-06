@@ -4,25 +4,36 @@
 
 If you're new here — welcome! This README is meant to answer *literally every* "wait, how does that work" question you could have about this repo: what it does, how to run it, what math is under the hood, which papers we're testing ourselves against, and what still needs doing. If something isn't explained below, that's a bug in this file — open an issue or yell at Suryanshu.
 
+**The four other files worth knowing about:**
+
+| File | What it's for |
+|---|---|
+| **[RUNBOOK.md](RUNBOOK.md)** | Everything left to do, as commands, in order, with costs and expected output. **Start here if you just want to finish the project.** |
+| **[FAQ.md](FAQ.md)** | *Why* it's built this way — design decisions, the roadmap, the paper's venue strategy, the benchmark reference sheet |
+| **[TODO.md](TODO.md)** | The prioritised checklist |
+| **[CHANGELOG.md](CHANGELOG.md)** | What changed and when, in plain language |
+
 ---
 
 ## Table of contents
 
 1. [TL;DR — what even is this](#tldr--what-even-is-this)
-2. [What it can actually do right now](#what-it-can-actually-do-right-now)
-3. [Quickstart — running in under 5 minutes](#quickstart--running-in-under-5-minutes)
-4. [The pipeline, exactly — Engines A–D with the real math](#the-pipeline-exactly--engines-ad-with-the-real-math)
-5. [The research questions & the exact formulas we score ourselves on](#the-research-questions--the-exact-formulas-we-score-ourselves-on)
-6. [Pilot results — first real data](#pilot-results-2026-09-01--first-real-data-read-carefully)
-7. [The dataset](#the-dataset)
-8. [The papers we're reading and re-testing](#the-papers-were-reading-and-re-testing)
-9. [The MCP server — LeBlanc as an agent tool](#the-mcp-server--leblanc-as-an-agent-tool)
-10. [The dashboard](#the-dashboard)
-11. [Repo layout](#repo-layout)
-12. [Code style & conventions](#code-style--conventions)
-13. [Project status & milestones](#project-status--milestones)
-14. [Known housekeeping / things we still owe ourselves](#known-housekeeping--things-we-still-owe-ourselves)
-15. [Team](#team)
+2. [Explain it like I'm new here — the whole project in plain English](#explain-it-like-im-new-here--the-whole-project-in-plain-english)
+3. [What it can actually do right now](#what-it-can-actually-do-right-now)
+4. [Quickstart — running in under 5 minutes](#quickstart--running-in-under-5-minutes)
+5. [The pipeline, exactly — Engines A–D with the real math](#the-pipeline-exactly--engines-ad-with-the-real-math)
+6. [The research questions & the exact formulas we score ourselves on](#the-research-questions--the-exact-formulas-we-score-ourselves-on)
+7. [Pilot results — first real data](#pilot-results-2026-09-01--first-real-data-read-carefully)
+8. [The dataset](#the-dataset)
+9. [The papers we're reading and re-testing](#the-papers-were-reading-and-re-testing)
+10. [The MCP server — LeBlanc as an agent tool](#the-mcp-server--leblanc-as-an-agent-tool)
+11. [The dashboard](#the-dashboard)
+12. [Repo layout](#repo-layout)
+13. [Code style & conventions](#code-style--conventions)
+14. [Project status & milestones — and honestly, what % done is this?](#project-status--milestones--and-honestly-what--done-is-this)
+15. [FAQ — moved to its own file](#faq--moved-to-its-own-file)
+16. [Known housekeeping / things we still owe ourselves](#known-housekeeping--things-we-still-owe-ourselves)
+17. [Team](#team)
 
 ---
 
@@ -42,6 +53,29 @@ prompt → [security warning injected] → LLM writes code → [Bandit + Semgrep
 Every arrow above is a real, working piece of code in this repo (not a diagram we drew and then didn't build). We run every prompt through every combination of {plain, enriched, enriched+repair} × {6 model generations} × {3 repetitions}, and measure what changes.
 
 The sharpest thing we're adding on top of "does scaffolding still help": **nobody has measured how often a scanner-clean "successful repair" is actually functionally broken code, inside a live iterative repair loop.** That's RQ5 below, and it's the headline finding we're chasing.
+
+## Explain it like I'm new here — the whole project in plain English
+
+You asked an AI ("ChatGPT, write me a login page") for code before. It gave you something that ran. What it probably didn't tell you: that code might have a hole in it that lets a stranger read your entire user database, delete your files, or run their own commands on your server. Not because the AI is malicious — because it learned to write code by reading millions of real GitHub repositories, and a lot of real code on GitHub is *also* full of these holes. The AI copied the bad habits along with the good ones.
+
+Security researchers have known this for years and tried two fixes:
+
+1. **Warn the AI before it writes anything** — tell it "hey, this kind of task is prone to SQL injection, be careful" before it generates the code. Papers show this genuinely helps.
+2. **Check the code after, and tell the AI to fix what's wrong** — run a scanner, hand it the list of problems, ask it to patch them, check again. Papers show this helps too.
+
+Every one of those papers, though, tested this in **2022–2024**, on the AI models of that era (GPT-3.5, early CodeLlama, etc.). Models have gotten dramatically better since then at writing code that *looks* correct on the first try. Nobody had gone back and asked the boring-but-important question: **does that old advice still do anything, or have models simply outgrown needing it?** And a second question nobody had asked at all: **when the AI says "fixed it," is the fixed code actually still doing its job, or did it just delete the risky feature to make the scanner shut up?**
+
+LeBlanc is a small, fully automated pipeline built to answer exactly those two questions, with real numbers instead of guesses. Concretely, here is everything that happens for one line item of the experiment:
+
+1. **Take one of 50 pre-written coding requests** ("write a login endpoint," "write a function that extracts a tar file," ...) — some hand-written, most borrowed from a well-known academic security benchmark called SecurityEval, so the results can be compared to other papers.
+2. **Optionally warn the model first** (Engine A) — a small local lookup system reads the request, decides which of 46 known vulnerability types it's likely to touch, and appends a warning paragraph. No AI is used for this step — it's a plain, fast, deterministic keyword + similarity search.
+3. **Send it to an AI model** to actually write the code. This is repeated across 6 different models spanning 3 "tiers" (a small/cheap model, a couple of mid-tier ones, a couple of today's frontier models), so the comparison isn't about one AI, it's about how the *idea of scaffolding* holds up as models improve.
+4. **Scan the code it wrote** (Engine B) with two independent, industry-standard security scanners (Bandit and Semgrep — the same category of tool a real security team would run in a CI pipeline). If they find something, that's a real, tool-verified finding, not an opinion.
+5. **If something's wrong, ask the same AI to fix it** (Engine C), tell it exactly what the scanners found, and rescan. Repeat up to 3 times. If it's still broken after 3 tries, that's recorded honestly as "didn't converge" — not swept under the rug.
+6. **Actually run the resulting code** (Engine D) against a small hand-written test — because a scanner can say "looks secure" about code that, say, no longer logs anyone in at all. This is the step nobody else's research does, and it's the whole point of the project's sharpest question (RQ5, below): **how often does "fixed" secretly mean "broken"?**
+7. **Log every single one of those steps** — the original prompt, the warning that got added, the exact code the AI wrote, every scanner finding, every repair attempt, and whether the final code actually works — into one SQLite database row. Nothing is summarized or thrown away before storage; the dashboard and the eventual paper compute every number *from that raw data*, live, so no number in this project is hand-typed.
+
+Do that for 50 prompts × 6 models × 3 "modes" (no help / warned / warned-and-repaired) × 3 repeats (because AI output is randomized, so one run of anything proves nothing) and you get 2,700 data points — enough to say something statistically real about whether the old advice still matters, and where it breaks down. That's the whole project. Nothing about it is more exotic than that; the value isn't a clever new algorithm, it's rigorously *measuring* an idea everyone assumed but nobody had checked recently.
 
 ## What it can actually do right now
 
@@ -74,8 +108,9 @@ python run_batch.py --preflight
 python app.py
 # -> http://localhost:5000
 
-# 5. (optional) run the free pilot — 450 cells, $0, resumable
-python run_batch.py --models gpt-oss-20b gpt-oss-120b gemini-2.5-flash --modes all --reps 1
+# 5. (optional) run a free pilot — Groq-only, $0, resumable
+#    (gemini-2.5-flash moved to paid billing on 2026-09-07 — including it costs money now)
+python run_batch.py --models gpt-oss-20b gpt-oss-120b --modes all --reps 1
 
 # 6. (optional) hook it up to Claude Code as an agent tool
 claude mcp add leblanc -s user -- python D:/LYPROJECT/v3/backend/mcp_server.py
@@ -87,13 +122,13 @@ That's it. No Docker, no external services, no signup beyond the two free API ke
 
 | Key | Model it unlocks | Cost | Required? |
 |---|---|---|---|
-| `GROQ_API_KEY` | `gpt-oss-20b`, `gpt-oss-120b` | free | for the free fleet |
-| `GEMINI_API_KEY` | `gemini-2.5-flash` | free tier | for the free fleet |
+| `GROQ_API_KEY` | `gpt-oss-20b`, `gpt-oss-120b` | free | the only genuinely free models |
+| `GEMINI_API_KEY` | `gemini-2.5-flash` | **paid since 2026-09-07** (~$2 for the full experiment) | recommended — it's the G3 anchor |
 | `OPENAI_API_KEY` | `gpt-4o-mini` | ~$1 for the whole experiment | optional |
 | `ANTHROPIC_API_KEY` | `claude-haiku-4.5` | ~$3 | optional |
 | `DEEPSEEK_API_KEY` | `deepseek-chat` (cheapest current-gen) | ~$0.30 | optional |
 
-The two free keys alone get you 3 of the 5 current fleet models — enough to run a full free pilot, no card required anywhere.
+The Groq key alone runs 2 of the 6 fleet models at zero cost. **Gemini was on the free tier when the 2026-09-01 pilot ran and is not any more** — that pilot's "$0" is a historical fact about that run, not a claim about repeating it today. The cost gate knows this: `run_batch.py` now prices Gemini and will refuse to start a Gemini-inclusive batch without `--yes`. Full 6-model experiment ≈ **$8**.
 
 ## The pipeline, exactly — Engines A–D with the real math
 
@@ -280,7 +315,11 @@ pressure a borderline result toward green.
 
 ## Pilot results (2026-09-01) — first real data, read carefully
 
-We ran the free-tier pilot end to end: **450 runs, 50 prompts × 3 free models × 3 modes, $0 spent, 68.5 minutes.** This is *not* the real experiment — it's the warm-up that exists to catch exactly the kind of bugs it caught (see below). Two things to keep in your head reading every number in this section:
+We ran the pilot end to end: **450 runs, 50 prompts × 3 models × 3 modes, $0 spent (all three were on free tiers *at the time* — Gemini has since moved to paid billing), 68.5 minutes.** This is *not* the real experiment — it's the warm-up that exists to catch exactly the kind of bugs it caught (see below). Three things to keep in your head reading every number in this section:
+
+> ⚠️ **These numbers predate the 2026-09-07 dedup fix.** The scanners were double-counting any weakness both tools found but labelled with different CWEs — 180 of the 291 findings here. Vulnerability *rates* are unaffected (they only ask "any finding?"), but raw finding **counts** below are inflated ≈1.6×. See [CHANGELOG](CHANGELOG.md).
+>
+> ⚠️ **A 10% false-positive triage of these findings came back at 53.6%**, concentrated in three noisy rules, and **62% of all findings landed on `app.run()` boilerplate** the model volunteers rather than on the requested function. Read every rate below with that in mind — and see [FAQ §7](FAQ.md#7-what-the-2026-09-07-review-changed-and-why-it-matters), because it changes what the paper can claim.
 
 > ⚠️ **None of these 3 models are actually "old."** `gpt-oss-20b`, `gpt-oss-120b`, and `gemini-2.5-flash` are all 2025–26 models — Groq deleted the real old/small anchor model (`llama-3.1-8b-instant`) out from under us mid-project (see the fleet-fix note in `docs/03_METHODOLOGY.md`). So right now "G1/G2/G3" only means "small vs. big vs. different vendor," **not** "old vs. new." The real generational question (RQ1's whole point) needs the paid-key models back in the fleet — that's an M4 thing, not fixable for free. Read the charts below as "how do 3 current models compare," not "did models get safer over time."
 >
@@ -408,13 +447,27 @@ dataset/
   tests/<id>_test.py             pytest smoke test, per tested prompt
   tests/_harness/                 offline fake MySQL / LDAP / network layer
   tests/MANIFEST.md                exact test coverage + exclusion reasons
+analysis/
+  rq_analysis.py             M5 — every figure, table & statistic, straight from the DB
+  fp_audit.py                 false-positive audit: sampler, worksheet, kappa scorer
+  output/                      generated (gitignored): figures/, tables/, SUMMARY.md, results.json
+paper/
+  leblanc_paper.tex          compiling paper skeleton; all numbers are red \PLACEHOLDER{}
 docs/
   00_DEFINITION.md .. 05_EXECUTION_PLAN.md   ground-truth project definition (see below)
-  researchdocs/                                literature PDFs, notes, the proposal
+  figures/pipeline_diagram.tex                 the four-engine figure, \input-ready
+  figures/pilot/*.png                           pilot charts (1 rep — directional only)
+  researchdocs/                                  literature PDFs, notes, the proposal
+demo/
+  vulnerable_example.py      deliberately vulnerable scanner bait (never executed)
 frontend/
   index.html                the entire dashboard UI (vanilla JS + Chart.js, no build step)
 reports/
   *.tex / *.pdf               periodic status reports to the supervising professor
+RUNBOOK.md                    everything left to do, as commands
+FAQ.md                        why it's built this way + roadmap + reference sheet
+TODO.md                       the prioritized, actionable to-do list (P0 → P3)
+CHANGELOG.md                  what changed, when, in plain language
 ```
 
 ## Code style & conventions
@@ -428,7 +481,7 @@ Nothing formal (no linter config checked in yet), but the code that's here follo
 - **Record what actually happened, not what should have happened** — e.g. `scanners_used` is stored on every run so a cell can never silently claim dual-scanner coverage it didn't have; `total_iterations` is the real count, not the cap.
 - **Docs win.** `docs/00`–`05` are the ground-truth definition of the project. If code, a report, or a slide contradicts something in `docs/`, the docs are amended *in the same change* as the code — never left to drift. See the note at the top of `docs/00_DEFINITION.md`.
 
-## Project status & milestones
+## Project status & milestones — and honestly, what % done is this?
 
 Every milestone has a hard gate — no gate cleared, no next milestone claimed "done."
 
@@ -436,21 +489,61 @@ Every milestone has a hard gate — no gate cleared, no next milestone claimed "
 |---|---|---|---|
 | M0 | Foundation docs + dataset selection | `docs/` exists, dataset frozen-candidate | ✅ done |
 | M1 | Harness: fleet, Semgrep, batch runner, preflight | `--preflight` green on all models | ✅ done |
-| M1.5 | Dashboard, metrics engine, MCP server, cost gate | dashboard boots, MCP tools callable | ✅ done |
+| M1.5 | Dashboard, metrics engine, MCP server, cost gate | dashboard boots, MCP tools callable | ✅ done — MCP hang bug found & fixed 2026-09-06, see FAQ |
 | M2 | Functional tests + reference solutions | every test passes on its reference; dataset frozen | ✅ done — 20/50, `validate_m2.py` green |
-| M3 | Pilot run (free tier, 450 cells) | <10% llm_error rate | 🟡 **in progress right now** |
-| M4 | Full run — 2,700 cells (50×6×3×3) | 100% cell-completeness matrix | ⬜ next |
-| M5 | Analysis notebook, figures, FP audit | every number reproducible straight from the DB | ⬜ upcoming |
-| M6 | Paper draft → arXiv → venue submission | co-author + guide sign-off | ⬜ upcoming |
+| M3 | Pilot run (free tier, 450 cells) | <10% llm_error rate, 3 reps, FP audit (κ) done | 🟡 **partial — 450 cells ran, but at 1 rep not 3, and the FP audit hasn't started** |
+| M4 | Full run — 2,700 cells (50×6×3×3, incl. paid models) | 100% cell-completeness matrix | ⬜ not started |
+| M5 | Analysis notebook, figures, FP audit | every number reproducible straight from the DB | ⬜ not started — `analysis/rq_analysis.ipynb` does not exist yet |
+| M6 | Paper draft → arXiv → venue submission | co-author + guide sign-off | ⬜ not started — `docs/04_PAPER.md` is a section skeleton, not a draft |
+
+**So — what percentage of this is actually done?** As of the 2026-09-07 review:
+
+- **The software: 100%.** Harness, dataset, dashboard, MCP server, and — new as of this review — the entire analysis layer (`analysis/rq_analysis.py`), the false-positive audit tooling (`analysis/fp_audit.py`), and a compiling paper skeleton (`paper/leblanc_paper.tex`). **There is no remaining code to write.** Everything runs end-to-end on the pilot database today.
+- **The science: ~20%.** One 1-rep, 3-model pilot has run (450/2,700 cells). The full experiment hasn't. The paper has structure but no prose, because prose requires results.
+- **Toward a submittable paper: ~35–40%.** The gap is now purely data collection, interpretation and writing — not engineering.
+
+**"Can it be finished so the only thing left is running?"** That was the goal of the 2026-09-07 pass, and yes:
+
+| Step | Status |
+|---|---|
+| M4 — collect the data | `python run_batch.py --models all --modes all --reps 3 --yes` — written, idempotent, resumable, cost-gated |
+| M5 — analysis, figures, tables, stats | `python analysis/rq_analysis.py` — **built and working**; regenerates everything from the DB in seconds |
+| M5b — false-positive audit | `python analysis/fp_audit.py --sample` → label → `--score` — **built**, with a pilot triage already done |
+| M6 — the paper | `paper/leblanc_paper.tex` — **compiles today**; every number is a red `\PLACEHOLDER{}` awaiting real values |
+
+The one thing no tool can do for you is **write the argument** — reading what the numbers say and turning it into prose. Everything up to that point is now a command. See **[RUNBOOK.md](RUNBOOK.md)**.
+
+## FAQ — moved to its own file
+
+The long-form answers now live in **[FAQ.md](FAQ.md)**, so this README stays a "how do I run
+it" document. What's answered there:
+
+| Question | Where |
+|---|---|
+| Isn't the CWE warning compulsory? Why is there a mode that turns it off? | [FAQ §1](FAQ.md#1-design-questions--why-is-it-built-like-that) |
+| Why cap repair at 3 rounds? Why 3 repetitions? Why 20/50 functional tests? | [FAQ §1](FAQ.md#1-design-questions--why-is-it-built-like-that) |
+| Why trust Bandit/Semgrep instead of asking an LLM to judge? | [FAQ §1](FAQ.md#1-design-questions--why-is-it-built-like-that) |
+| What's left to do, and in what order? | [FAQ §2](FAQ.md#2-the-roadmap--what-is-actually-left) · [RUNBOOK.md](RUNBOOK.md) |
+| Is this a real paper? Will it survive review? Which venue? | [FAQ §3](FAQ.md#3-the-research-paper--is-this-real-where-does-it-go) |
+| Is the codebase any good, honestly? | [FAQ §4](FAQ.md#4-is-the-codebase-any-good-honestly) |
+| Should we reuse the original papers' exact prompts? | [FAQ §5](FAQ.md#5-prompts-benchmarks-figures--the-reference-sheet) |
+| The eight papers, the benchmarks, the figures — one reference sheet | [FAQ §5](FAQ.md#5-prompts-benchmarks-figures--the-reference-sheet) |
+| Does `debug=True` really count as a vulnerability? Is the DB verifiable? | [FAQ §6](FAQ.md#6-security-questions-people-ask-about-this-repo-itself) |
+| What did the 2026-09-07 review change, and why does it matter? | [FAQ §7](FAQ.md#7-what-the-2026-09-07-review-changed-and-why-it-matters) |
+
 
 ## Known housekeeping / things we still owe ourselves
 
-Being honest in this doc means listing the stuff that isn't done yet too:
+Being honest in this doc means listing the stuff that isn't done yet too. ✅ = fixed during the 2026-09-06 full-codebase review; the rest is still open — see the [TODO list](TODO.md) for the prioritized, actionable version of everything below.
 
-- The 2,700-run full experiment (M4) hasn't started — only the free-tier pilot has run so far.
-- Groq retired `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` mid-project (2026-09-01) — fixed by substituting `gpt-oss-20b`/`gpt-oss-120b`, documented in `docs/03_METHODOLOGY.md`, but it means the "G1 = literal 2023-24-era model" framing needs a caveat in Threats to Validity.
+- ✅ **Fixed 2026-09-06:** the MCP server hang on any scanning/repair tool (`stdin` inheritance + sync-on-event-loop dispatch) — see [FAQ](#faq--the-questions-everyone-eventually-asks) for the root cause and how it was verified.
+- ✅ **Fixed 2026-09-06:** the frontend was a dark, saturated, heavily-rounded AI-dashboard look — rewritten to a flat, light, academic style against a validated palette. Same IDs/JS, only presentation changed.
+- The 2,700-run full experiment (M4) hasn't started — only the free-tier pilot has run so far, and at 1 rep, not the planned 3.
+- Groq retired `llama-3.1-8b-instant` and `llama-3.3-70b-versatile` mid-project (2026-09-01) — fixed by substituting `gpt-oss-20b`/`gpt-oss-120b`, documented in `docs/03_METHODOLOGY.md`, but it means the "G1 = literal 2023-24-era model" framing needs a caveat in Threats to Validity. The **old rows recorded under the retired model names are still in `leblanc_v3.db`** and will render as an unlabeled `"?"` generation in `metrics.py` output — purge or document them before M4.
 - `analysis/rq_analysis.ipynb` (the notebook that's supposed to generate every paper figure from the DB) doesn't exist yet — that's M5.
-- An earlier status report flagged `docs/researchdocs/BreachTrace OneWeek Sprint(1).docx` as an unrelated file that ended up in this archive by accident — still here, still needs a look.
+- **Confirmed not a LeBlanc file:** `docs/researchdocs/BreachTrace OneWeek Sprint(1).docx` was opened and read during this review — it's a different team's unrelated capstone sprint plan (AWS forensics, different guide). It should be removed from this repo, not just "looked at."
+- `demo_vulnerable.py` sits untracked at the repo root with no header comment explaining its purpose — give it one and move it into a `demo/` folder, or delete it.
+- `docs/researchdocs/vapt_report.pdf` presents numbers that don't trace back to `leblanc_v3.db` (different prompt count, a retired model) — add a dated caveat noting it's a pre-v3, non-reproducible deliverable, per this project's own "no numbers the DB can't reproduce" rule.
 - The false-positive audit protocol (κ between two annotators on a 10% sample of findings) is defined in `docs/01_RESEARCH_QUESTIONS.md` but hasn't been run yet — needs M3's pilot data first.
 
 ## Team
