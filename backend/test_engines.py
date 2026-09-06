@@ -173,6 +173,44 @@ class TestRepairPrompt:
         assert "CWE-502" in build_repair_prompt("x=1", [F()], security_context=["CWE-502"])
 
 
+class TestRepairLoopStatuses:
+    """The loop's terminal status must name what actually happened."""
+
+    def test_api_failure_is_llm_error_not_extraction_failed(self, monkeypatch):
+        """A network failure says nothing about the model's code quality; an
+        unparseable response does. Reporting both as extraction_failed would make
+        a flaky connection indistinguishable from a model that writes garbage.
+        (Regression test for the 2026-09-07 separation.)"""
+        import engine_c_repair as ec
+
+        def boom(prompt, model):
+            raise RuntimeError("simulated API outage")
+
+        monkeypatch.setattr(ec, "call_llm", boom)
+        r = ec.repair_loop("x = 1", [F(cwes=["CWE-89"])], "gpt-oss-20b")
+        assert r["final_status"] == "llm_error"
+        assert r["iterations"][0]["llm_error"], "the raw error must be preserved"
+
+    def test_unparseable_response_is_extraction_failed(self, monkeypatch):
+        import engine_c_repair as ec
+        monkeypatch.setattr(ec, "call_llm", lambda p, m: "I'd rather not write code today.")
+        r = ec.repair_loop("x = 1", [F(cwes=["CWE-89"])], "gpt-oss-20b")
+        assert r["final_status"] == "extraction_failed"
+
+    def test_empty_code_short_circuits(self):
+        import engine_c_repair as ec
+        r = ec.repair_loop("", [F()], "gpt-oss-20b")
+        assert r["final_status"] == "extraction_failed" and r["total_iterations"] == 0
+
+    def test_no_findings_means_no_llm_call_at_all(self, monkeypatch):
+        """Nothing to fix must cost nothing — the loop should never call the model."""
+        import engine_c_repair as ec
+        called = []
+        monkeypatch.setattr(ec, "call_llm", lambda p, m: called.append(1) or "```python\nx=1\n```")
+        r = ec.repair_loop("x = 1", [], "gpt-oss-20b")
+        assert r["final_status"] == "clean" and not called, "must not spend a call on clean code"
+
+
 # ------------------------------------------------------------------- Engine D
 class TestFunctionalTests:
     def test_missing_test_file_is_no_tests_not_a_failure(self):

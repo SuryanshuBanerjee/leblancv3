@@ -91,6 +91,13 @@ def _client(provider):
 
 
 def call_with_backoff(func, max_retries=5, base_delay=10):
+    """Retry a call through rate limits and transient server errors; re-raise anything else.
+
+    Exponential backoff (10s, 20s, 40s...) on 429/quota, a flat 8s on 5xx, and an
+    immediate re-raise for everything else — a bad API key or an unknown model
+    should fail loudly and instantly, not after five minutes of retries. Free-tier
+    rate limits are the dominant cost of the full run, which is why this exists.
+    """
     for i in range(max_retries):
         try:
             return func()
@@ -145,6 +152,12 @@ def _generate(provider, api_model, prompt, max_tokens=MAX_TOKENS):
 
 
 def call_llm(prompt, model_name):
+    """Generate from one configured model. Unknown names raise rather than fall back.
+
+    The hard failure is deliberate: v2 had a silent fallback that quietly sent an
+    entire experiment to the wrong model, which is unrecoverable after the fact —
+    the data looks fine and is wrong.
+    """
     if model_name not in MODEL_CONFIGS:
         raise ValueError(f"Unknown model '{model_name}'. Known: {list(MODEL_CONFIGS)}")
     cfg = MODEL_CONFIGS[model_name]

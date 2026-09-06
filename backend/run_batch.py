@@ -60,6 +60,11 @@ def estimate_cost(models, modes, n_prompts, reps):
 
 
 def load_dataset(category=None, ids=None):
+    """Load the frozen dataset, optionally filtered by category or explicit IDs.
+
+    An unmatched filter returns an empty list rather than raising — the caller
+    reports "0 cells planned", which is clearer than a traceback for a typo.
+    """
     with open(DATASET_PATH, "r", encoding="utf-8") as f:
         data = json.load(f)
     if category:
@@ -139,6 +144,11 @@ def run_cell(p, model, mode, rep):
 
 
 def report():
+    """Print the cell-completeness matrix: per (model, mode), how many ok vs errored.
+
+    This is the M4 gate — the run is done when every cell is at prompts x reps and
+    the error column is ~0.
+    """
     runs = get_all_runs()
     with open(DATASET_PATH, "r", encoding="utf-8") as f:
         n_prompts = len(json.load(f))
@@ -156,6 +166,7 @@ def report():
 
 
 def main():
+    """CLI entry point. Preflight, then plan, then cost-gate, then run resumably."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", nargs="+", default=[])
     ap.add_argument("--modes", nargs="+", default=[])

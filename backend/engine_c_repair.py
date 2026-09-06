@@ -9,6 +9,18 @@ MAX_ITERATIONS = 3
 
 
 def build_repair_prompt(code, vulnerabilities, security_context=None):
+    """Format findings into a repair instruction the model can act on.
+
+    Shape: numbered findings (CWE, severity, line, message) + optional CWE context
+    + the code + "return only the fixed code". This mirrors HexaCoder's
+    oracle-report-plus-hint format, so we are testing the same repair *idea* at
+    inference time rather than baked into training — cite accordingly.
+
+    The interface-preservation clause is not politeness. Without it, "fix the SQL
+    injection" has a trivially winning move: delete the query. That is precisely
+    the failure RQ5 measures, so the prompt is written to discourage it and Engine
+    D checks whether it happened anyway.
+    """
     vuln_lines = []
     for i, v in enumerate(vulnerabilities, 1):
         cwes = ", ".join(v["cwes"]) if v["cwes"] else "unknown"
@@ -31,6 +43,21 @@ def build_repair_prompt(code, vulnerabilities, security_context=None):
 
 
 def repair_loop(code, initial_vulns, model_name, max_iterations=MAX_ITERATIONS, security_context=None):
+    """Scan -> ask the model to fix -> re-scan, up to max_iterations (default 3).
+
+    Returns {final_code, final_status, iterations, total_iterations} where
+    final_status is one of:
+        clean              re-scan came back with no findings
+        not_converged      still vulnerable after the cap — DATA, not failure; RQ3
+                           is about exactly how often this happens
+        extraction_failed  the model replied but we could not parse code from it
+        llm_error          the API call itself failed — says nothing about the
+                           model's code, so it is kept distinct from the above
+
+    Each iteration records vulns_before/after and the code it produced, so the
+    dashboard can show the repair as a timeline and the analysis can ask how much
+    progress each round actually made.
+    """
     if not code:
         return {"final_code": "", "final_status": "extraction_failed",
                 "iterations": [], "total_iterations": 0}
@@ -68,7 +95,16 @@ def repair_loop(code, initial_vulns, model_name, max_iterations=MAX_ITERATIONS, 
             break
         current_code, current_vulns = clean_code, new_vulns
 
-    if iterations and iterations[-1].get("extraction_failed"):
+    # An API failure and an unparseable response are different facts. Both end the
+    # loop, but only the second says anything about the model's code: "the network
+    # flaked" is not evidence about code quality, while "the model returned text we
+    # could not compile" is. Reporting both as `extraction_failed` would make a bad
+    # afternoon on someone's wifi indistinguishable from a model that writes garbage,
+    # and would leave the outcome census unable to tell you which you had.
+    # (Separated 2026-09-07, same reasoning as Engine D's `no_code`.)
+    if iterations and iterations[-1].get("llm_error"):
+        final_status = "llm_error"
+    elif iterations and iterations[-1].get("extraction_failed"):
         final_status = "extraction_failed"
     else:
         final_status = "clean" if not current_vulns else "not_converged"

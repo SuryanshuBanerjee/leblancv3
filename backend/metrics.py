@@ -73,6 +73,12 @@ def _is_vuln_initial(r):
 # ---------- RQ computations ----------
 
 def compute_all():
+    """Compute every RQ payload from the database. Free, offline, read-only.
+
+    Each RQ carries its own `insufficient` flag rather than a fabricated number,
+    so a caller (the dashboard, the MCP status tool, the analysis layer) can say
+    "not enough data yet" instead of showing a percentage computed from three runs.
+    """
     runs = get_all_runs()
     gens = {m: cfg["gen"] for m, cfg in MODEL_CONFIGS.items()}
     models_seen = sorted({r["model"] for r in runs}, key=lambda m: (gens.get(m, "Z"), m))

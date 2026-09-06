@@ -27,11 +27,13 @@ CORS(app, origins=["http://localhost:5000", "http://127.0.0.1:5000"])  # v2 had 
 
 @app.route("/")
 def index():
+    """Serve the dashboard shell."""
     return send_from_directory(FRONTEND_DIR, "index.html")
 
 
 @app.route("/<path:path>")
 def static_files(path):
+    """Serve frontend assets (the UI is a single file plus whatever it references)."""
     return send_from_directory(FRONTEND_DIR, path)
 
 
@@ -39,6 +41,13 @@ def static_files(path):
 
 @app.route("/api/meta")
 def meta():
+    """Project metadata + per-model key availability, for the Overview tab.
+
+    `key_set` reports whether the env var for each provider is present — it does
+    NOT verify the key works. Use /api/preflight (or run_batch --preflight) for
+    that; a set-but-invalid key is exactly the failure the preflight gate exists
+    to catch before an overnight run.
+    """
     prompts = load_dataset()
     key_status = {}
     for name, cfg in MODEL_CONFIGS.items():
@@ -59,6 +68,7 @@ def meta():
 
 @app.route("/api/prompts")
 def prompts():
+    """The frozen 50-prompt dataset, as stored."""
     return jsonify(load_dataset())
 
 
@@ -75,11 +85,18 @@ def enrich_preview():
 
 @app.route("/api/metrics")
 def metrics():
+    """Live RQ1-RQ5 metrics computed from the database on every request."""
     return jsonify(compute_all())
 
 
 @app.route("/api/history")
 def history():
+    """Every run, trimmed to the columns the history table shows.
+
+    Deliberately slim: the full record (all code, all findings, all repair
+    iterations) is fetched per-row via /api/run_detail when a user clicks in,
+    rather than shipping megabytes of code to render a table.
+    """
     runs = get_all_runs()
     slim = []
     for r in runs:
@@ -92,6 +109,7 @@ def history():
 
 @app.route("/api/run_detail/<int:run_id>")
 def run_detail(run_id):
+    """One complete run record, including every pipeline stage's code and findings."""
     for r in get_all_runs():
         if r["id"] == run_id:
             return jsonify(r)
@@ -108,6 +126,12 @@ def preflight_route():
 
 @app.route("/api/run", methods=["POST"])
 def run_single():
+    """The ONLY endpoint that spends API tokens: one prompt, one model, one run.
+
+    Accepts either a dataset `prompt_id` or an ad-hoc `prompt`. Batch experiments
+    deliberately live in run_batch.py behind a cost gate — a web button that could
+    kick off 2,700 paid calls is exactly the mistake this split prevents.
+    """
     data = request.json or {}
     prompt_id = data.get("prompt_id")
     model = data.get("model")

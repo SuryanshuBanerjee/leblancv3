@@ -8,12 +8,20 @@ DB_PATH = os.path.join(os.path.dirname(__file__), "leblanc_v3.db")
 
 
 def get_db():
+    """Open a connection with row access by column name (sqlite3.Row)."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
 
 def init_db():
+    """Create the runs table if absent, then apply any additive column migrations.
+
+    Safe to call on every startup and on an existing populated database — the
+    CREATE is IF NOT EXISTS and the migration only adds columns it cannot find.
+    Called automatically by app.py and run_batch.py, so a fresh clone with no
+    database file works without a setup step.
+    """
     conn = get_db()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS runs (
@@ -59,6 +67,13 @@ def init_db():
 
 
 def has_run(prompt_id, model, mode, rep):
+    """Has this exact cell already completed? (Drives --resume.)
+
+    Deliberately returns False for cells that ended in `llm_error`, so a batch
+    re-run retries transient API failures instead of treating them as done. Every
+    other outcome — including `extraction_failed` — counts as complete, because
+    those are real results about the model, not infrastructure hiccups.
+    """
     conn = get_db()
     row = conn.execute(
         "SELECT 1 FROM runs WHERE prompt_id=? AND model=? AND mode=? AND rep=? AND final_status != 'llm_error'",
@@ -68,6 +83,15 @@ def has_run(prompt_id, model, mode, rep):
 
 
 def save_run(d):
+    """Upsert one complete run record, keyed by (prompt_id, model, mode, rep).
+
+    ON CONFLICT ... DO UPDATE rather than INSERT, so re-running a cell overwrites
+    it cleanly instead of accumulating duplicates — this is what makes the batch
+    runner idempotent and safe to interrupt. Nested structures (findings, repair
+    iterations, retrieval evidence, provenance) are stored as JSON text: the whole
+    trace of a run lives in its row, so every reported number is recomputable from
+    stored evidence rather than from a summary that could drift.
+    """
     conn = get_db()
     conn.execute("""
         INSERT INTO runs (prompt_id, model, mode, rep, generation, category, prompt_text,
@@ -104,6 +128,12 @@ def save_run(d):
 
 
 def get_all_runs():
+    """Every run, newest first, with the JSON columns already decoded.
+
+    Returns plain dicts (not Rows) so callers can treat them as ordinary data.
+    Note this loads the whole table — fine at the planned 2,700 rows, and the
+    simplicity is worth more here than pagination would be.
+    """
     conn = get_db()
     rows = conn.execute("SELECT * FROM runs ORDER BY id DESC").fetchall()
     conn.close()

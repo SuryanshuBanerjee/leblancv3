@@ -93,6 +93,7 @@ def stratified_sample(rows, pct):
 
 
 def write_worksheet(sample, total, pct):
+    """Render the sample as a labelling worksheet, each finding beside its real code."""
     os.makedirs(OUT, exist_ok=True)
     by_tool = Counter(r["tool"] for r in sample)
     by_cat = Counter(r["category"] for r in sample)
@@ -142,6 +143,11 @@ VERDICT_RE = re.compile(r"^- verdict:\s*`?\s*(TP|FP|\?)?\s*`?", re.I | re.M)
 
 
 def read_verdicts(path):
+    """Parse verdicts out of a labelled worksheet; None if the file does not exist.
+
+    An unlabelled row reads as "" rather than "?" — missing and uncertain are
+    different, and only the second is a judgement.
+    """
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as f:
@@ -154,6 +160,12 @@ def read_verdicts(path):
 
 
 def cohen_kappa(a, b):
+    """Inter-rater agreement corrected for chance, over rows BOTH annotators labelled.
+
+    Raw agreement overstates reliability when one label dominates: two people who
+    both say "TP" 90% of the time agree 82% of the time by luck alone. Kappa
+    subtracts that expected agreement out.
+    """
     pairs = [(x, y) for x, y in zip(a, b) if x and y]
     if not pairs:
         return None, 0
@@ -169,6 +181,13 @@ def cohen_kappa(a, b):
 
 
 def score():
+    """Report the false-positive rate, and kappa when two annotators labelled.
+
+    With one worksheet it reports the rate but states plainly that this is a
+    single-annotator triage with no kappa — the protocol in docs/01 requires two
+    independent labellers, and a tool that let one person silently claim the
+    stronger result would be helping us mislead ourselves.
+    """
     single = read_verdicts(WORKSHEET)
     a = read_verdicts(WORKSHEET.replace(".md", "_A.md"))
     b = read_verdicts(WORKSHEET.replace(".md", "_B.md"))
@@ -228,6 +247,7 @@ def score():
 
 
 def main():
+    """CLI entry point: --sample draws the worksheet, --score reads it back."""
     ap = argparse.ArgumentParser(description="False-positive audit sampler / scorer")
     ap.add_argument("--sample", action="store_true", help="draw the stratified worksheet")
     ap.add_argument("--score", action="store_true", help="score filled-in worksheets")

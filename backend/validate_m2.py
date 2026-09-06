@@ -28,6 +28,12 @@ def _ids_with_tests():
 
 
 def main():
+    """Run every functional test against its reference solution; exit 1 on any failure.
+
+    This is the M2 gate: a test that does not pass on a known-good implementation
+    cannot distinguish broken generated code from a broken test, so it must not
+    enter the frozen dataset.
+    """
     with open(os.path.join(DATASET, "leblanc_v3_prompts.json"), encoding="utf-8") as f:
         n_prompts = len(json.load(f))
 

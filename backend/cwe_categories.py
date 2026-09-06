@@ -1,4 +1,22 @@
-# CWE / rule -> category mapping, v3 (extends v2 for the S-prompt CWEs)
+"""
+CWE / scanner-rule -> six-category mapping.
+
+WHY CATEGORIES EXIST. RQ4 asks which *kinds* of weakness survive full scaffolding.
+Answering that per-CWE would give ~40 cells of 1-2 runs each — noise. Grouping into
+six families (Injection, Auth, Crypto, File/Path, Deserialization, Web/Request)
+gives cells big enough to say something about, and matches how a practitioner
+actually thinks about risk.
+
+TWO LOOKUPS, IN ORDER. A finding is categorised by its scanner rule ID first and
+by its CWE only as a fallback, because the rule is more specific: Bandit's B301
+(pickle) and B303 (md5) both map to "crypto-ish" CWEs, but B301 is a
+deserialization problem and B303 is a crypto one. Rule-first gets that right.
+
+NOTE ON PROMPT CATEGORIES. This maps *findings*. The category used for RQ4's rows
+is the one attached to the prompt in the dataset, never inferred from generated
+text — see metrics._rq4. The two are deliberately separate: what a task is about
+and what a scanner found in the answer are different questions.
+"""
 
 BANDIT_MAPPINGS = {
     # Injection - command & subprocess
@@ -46,6 +64,13 @@ CWE_CATEGORY_MAP = {
 
 
 def get_category_by_rule(rule_id, cwes):
+    """Categorise one finding. Rule ID wins; CWE is the fallback; "Other" is honest.
+
+    Returns one of the six category names, or "Other" when neither the rule nor any
+    of its CWEs is mapped. "Other" is a real answer, not a failure — it means the
+    analysers found something outside our taxonomy, and lumping it into the nearest
+    category would quietly corrupt RQ4's per-category rates.
+    """
     if rule_id in BANDIT_MAPPINGS:
         return BANDIT_MAPPINGS[rule_id]
     for cwe in cwes:
