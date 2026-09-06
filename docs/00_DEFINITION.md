@@ -20,7 +20,8 @@ user prompt ──► Engine A (CWE-aware enrichment) ──► LLM ──► En
 
 - **Engine A** — keyword→CWE→warning injection (rule-based, no LLM). Unchanged concept from v2.
 - **Engine B** — dual static analysis: Bandit (`-ll`, medium+) ∪ Semgrep (pinned local copy
-  of the `p/python` pack, 781 rules), findings unioned and deduplicated by (line, CWE).
+  of the `p/python` pack, 151 Python rules), findings unioned and deduplicated by
+  canonical cross-tool issue, then (line, CWE-set), then (line, rule).
   v2 shipped Bandit only; v3 restores Semgrep. (The initially-configured `p/python-security`
   pack was a 404 that silently degraded to Bandit-only — fixed 2026-07-14 by pinning `p/python`.)
 - **Engine C** — scanner findings → structured repair prompt → same LLM → re-scan. Max 3 iterations.

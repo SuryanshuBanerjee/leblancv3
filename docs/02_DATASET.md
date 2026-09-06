@@ -38,11 +38,19 @@ Injection 11 · Auth 12 · Crypto 7 · File/Path 8 · Deserialization 9 · Web/R
 }
 ```
 
-### Fields still to be added (build task M2, before any full run)
+### How tests are linked (resolved 2026-09-07 — M2 shipped differently than planned)
 
-- `"tests"`: path to a pytest file `dataset/tests/<id>_test.py` — 1–3 smoke tests defining
-  minimal functional correctness (see spec below).
-- `"entrypoint"`: function/route name the tests import or call.
+The plan was to add `"tests"` and `"entrypoint"` fields to every entry. **That is not what was
+built, and the dataset file has no such fields.** Engine D resolves tests *by convention*
+instead: prompt `S001` is tested by `dataset/tests/S001_test.py` against the reference solution
+`dataset/reference/S001.py`, and a prompt with no matching test file yields the outcome class
+`no_tests`. The entrypoint is not recorded as data either — it is expressed directly in the
+test, which imports what it needs from `solution`.
+
+This is simpler and has one fewer thing to keep in sync (a `"tests"` path that disagrees with
+the file on disk is a bug that convention makes impossible), at the cost of the mapping being
+implicit rather than declared. The per-prompt entrypoint each test actually exercises is
+documented in `dataset/tests/MANIFEST.md`, which is the file of record for coverage.
 
 ## Functional test spec (Engine D contract)
 

@@ -70,7 +70,10 @@
   .badge{font-size:11.5px; padding:2px 9px; border-radius:4px; font-weight:600; border:1px solid transparent}
   .s-clean,.s-pass{background:var(--good-bg); color:var(--good); border-color:var(--good-bd)}
   .s-vulnerable,.s-not_converged,.s-fail{background:var(--bad-bg); color:var(--bad); border-color:var(--bad-bd)}
-  .s-llm_error,.s-extraction_failed,.s-timeout,.s-harness_error{background:var(--warn-bg); color:var(--warn); border-color:var(--warn-bd)}
+  .s-llm_error,.s-extraction_failed,.s-timeout,.s-harness_error,.s-no_code{background:var(--warn-bg); color:var(--warn); border-color:var(--warn-bd)}
+  /* excluded-by-design, not an outcome to worry about — deliberately neutral so it
+     doesn't read as a failure in the run table */
+  .s-no_tests{background:var(--surface-2); color:var(--muted); border-color:var(--border)}
   .heat{display:grid; gap:4px; margin-top:12px}
   .heatcell{border-radius:4px; padding:10px 6px; text-align:center; font-size:12.5px; border:1px solid var(--border)}
   #modal{position:fixed; inset:0; background:rgba(11,11,11,.45); display:none; align-items:flex-start; justify-content:center; padding:40px; z-index:20; overflow:auto}
@@ -349,7 +352,7 @@ async function loadHistory(){
      <td><span class="pill ${(r.generation||'?').toLowerCase()}">${r.generation||'?'}</span></td>
      <td>${r.mode}</td><td>${r.rep}</td><td>${r.vuln_count}</td>
      <td><span class="badge s-${r.final_status}">${r.final_status}</span></td>
-     <td>${r.functest_status||'—'}</td><td>${r.total_iterations}</td><td>${(r.scanners||[]).join('+')}</td></tr>`).join('')
+     <td>${r.functest_status?`<span class="badge s-${r.functest_status}">${r.functest_status}</span>`:'—'}</td><td>${r.total_iterations}</td><td>${(r.scanners||[]).join('+')}</td></tr>`).join('')
     || '<tr><td colspan="11" style="color:var(--muted)">No runs yet — use the Lab or run_batch.py</td></tr>';
 }
 async function showRun(id){
