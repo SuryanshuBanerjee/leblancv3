@@ -225,6 +225,17 @@ Decision bands separating ``yes'', ``mixed'', and ``no'' were fixed in the
 project's public documentation \emph{before} data collection and are applied
 mechanically by the analysis script.
 
+Three further precautions, each because the naive alternative would overstate
+what we know. First, \textbf{repetitions are nested within tasks}: three samples
+of one task are not three independent observations, so the logistic model uses
+standard errors clustered on task, and every headline rate is additionally
+reported with a cluster bootstrap over tasks (resampling tasks, not runs).
+Second, \textbf{we run one test per model}, so p-values within a family are
+corrected for multiple comparisons (Benjamini--Hochberg, FDR $\alpha = 0.05$); we
+report adjusted values. Third, every analysis choice that could move a headline
+number is reported as a \textbf{sensitivity range} rather than settled silently
+(\S\ref{sec:sensitivity}).
+
 % =====================================================================
 \section{Results}
 
@@ -276,6 +287,36 @@ Write whichever one is true.}
 
 \TODO{Include the qualitative coding of how repairs break functionality:
 interface change, stub-out, dependency drift. One worked example per mode.}
+
+\subsection{Sensitivity --- does the headline survive its own assumptions?}
+\label{sec:sensitivity}
+
+\PLACEHOLDER{Insert analysis/output/tables/sensitivity.tex}
+
+\noindent Three analysis choices could each move the baseline rate, so we report
+the range rather than one convenient point.
+
+\textbf{Which findings count.} Our security verdict is the union of two
+analysers, and not every rule they fire is a weakness in the code that was
+requested. Excluding the rule families the false-positive audit judged
+inapplicable moves the baseline rate to \PLACEHOLDER{a}\%; excluding findings
+located in the demonstration scaffolding models append (\texttt{app.run(...)},
+\texttt{\_\_main\_\_} blocks) rather than in the requested function moves it to
+\PLACEHOLDER{b}\%; excluding both gives \PLACEHOLDER{c}\%, against a headline of
+\PLACEHOLDER{d}\%. \TODO{If this spread is large --- in our pilot it was over 30
+percentage points for one model --- then the headline figure is substantially a
+statement about Flask boilerplate, and the conservative figure belongs in the
+abstract alongside it. Do not report only the larger number.}
+
+\textbf{Unparseable output.} Runs whose output did not yield compilable code are
+excluded from the rate denominator; a model that emitted no code produced nothing
+to judge. Because that failure rate differs by model (\PLACEHOLDER{e}\% to
+\PLACEHOLDER{f}\%), we also report the rate with those runs counted as clean and
+as vulnerable, bounding the effect of the choice at \PLACEHOLDER{g}\,pp.
+
+\textbf{Clustering.} Naive intervals treat three repetitions of one task as three
+independent observations. Task-level bootstrap intervals are
+\PLACEHOLDER{h}\,pp wider on average; we quote those.
 
 % =====================================================================
 \section{Threats to Validity}

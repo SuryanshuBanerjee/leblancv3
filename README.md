@@ -31,9 +31,10 @@ If you're new here — welcome! This README is meant to answer *literally every*
 12. [Repo layout](#repo-layout)
 13. [Code style & conventions](#code-style--conventions)
 14. [Project status & milestones — and honestly, what % done is this?](#project-status--milestones--and-honestly-what--done-is-this)
-15. [FAQ — moved to its own file](#faq--moved-to-its-own-file)
-16. [Known housekeeping / things we still owe ourselves](#known-housekeeping--things-we-still-owe-ourselves)
-17. [Team](#team)
+15. [Research validity — the things that would otherwise get this rejected](#research-validity--the-things-that-would-otherwise-get-this-rejected)
+16. [FAQ — moved to its own file](#faq--moved-to-its-own-file)
+17. [Known housekeeping / things we still owe ourselves](#known-housekeeping--things-we-still-owe-ourselves)
+18. [Team](#team)
 
 ---
 
@@ -438,6 +439,7 @@ backend/
   database.py                SQLite schema + idempotent upsert
   run_batch.py                the experiment runner (cost-gated, resumable)
   validate_m2.py               offline gate: every functional test passes on its reference
+  test_engines.py               unit tests for the pipeline logic (pytest, free, offline)
   cwe_kb.json                 46-entry CWE knowledge base (Engine A's corpus)
   cwe_categories.py            Bandit rule / CWE → 6-category mapping
   semgrep_rules/python.yaml     pinned local Semgrep ruleset (no network scans)
@@ -512,6 +514,42 @@ Every milestone has a hard gate — no gate cleared, no next milestone claimed "
 | M6 — the paper | `paper/leblanc_paper.tex` — **compiles today**; every number is a red `\PLACEHOLDER{}` awaiting real values |
 
 The one thing no tool can do for you is **write the argument** — reading what the numbers say and turning it into prose. Everything up to that point is now a command. See **[RUNBOOK.md](RUNBOOK.md)**.
+
+## Research validity — the things that would otherwise get this rejected
+
+A measurement paper lives or dies on whether its numbers mean what they appear to mean. This section lists every place where a headline number depends on a *choice* rather than on the models, what we do about it, and where the code that does it lives. All of it runs automatically — `python analysis/rq_analysis.py` prints the whole thing into `analysis/output/SUMMARY.md` every time.
+
+### The five threats, and what handles each
+
+| # | The problem | Why it would sink the paper | What we do | Where |
+|---|---|---|---|---|
+| 1 | **Scanners are wrong a lot.** A stratified 10% audit of pilot findings came back at **53.6% false positives**, concentrated in three rule families. | Every RQ rests on "the scanner said so". An unreported FP rate is review comment #1, guaranteed. | Audit tooling with a reproducible sample; rates recomputed with the noisy families excluded, reported as a range next to the headline. | `analysis/fp_audit.py`, `rule_sensitivity()` |
+| 2 | **62% of findings were on scaffolding the model volunteered** — `app.run(...)` / `__main__` blocks it appends after answering — not on the requested function. | "Vulnerability rate" would substantially be measuring Flask demo boilerplate. In the pilot this inflates one model's rate by **36.9pp**. | Findings are classified by whether they sit on scaffolding; rates reported with and without. | `finding_composition()`, `rule_sensitivity()` |
+| 3 | **Repetitions are nested inside tasks.** 3 reps × 50 prompts is not 150 independent observations. | Naive Wilson intervals are too narrow and p-values too small — a straightforward overstatement of confidence. | Cluster bootstrap over *tasks* for every rate; cluster-robust standard errors in the logistic model. | `cluster_bootstrap_ci()`, `logistic_model()` |
+| 4 | **One statistical test per model** across a family of six. | With six tests, "one came out p<0.05" is expected under a null. | Benjamini–Hochberg FDR correction; the adjusted p is what the paper quotes. | `benjamini_hochberg()` |
+| 5 | **Extraction failures are excluded from the denominator**, and their rate differs sharply by model. | A model judged only on its parseable output is being flattered if parseability tracks task difficulty. | Rate reported under all three conventions (excluded / counted clean / counted vulnerable) with the spread stated. | `extraction_sensitivity()` |
+
+### The RQ5 control that was missing
+
+RQ5 asks how often a scanner-certified repair is functionally broken. On its own that number proves nothing about *repair* — code the model wrote clean on the first try also fails functional tests at some baseline rate. So the analysis computes the difference:
+
+```
+attributable = P(fails tests | scanner-clean, repaired) − P(fails tests | scanner-clean, never repaired)
+```
+
+On pilot data that's 62.5% vs 50.0%, i.e. **+12.5pp attributable, Fisher p=0.72 at n=8** — nowhere near significance. If that holds at full scale, the honest headline is *"scanner-clean LLM code frequently doesn't work"* (a real extension of the secure-pass@k argument) rather than *"the repair loop breaks code."* Both are publishable; only one is supported by any given result, and the analysis says which.
+
+### Reproducibility: every run records what produced it
+
+The project's claim is "results don't drift because the ruleset is pinned." That's unverifiable after the fact unless each run records *which* ruleset. Every row now stores a `provenance` blob — Bandit version, Semgrep version, config name, a SHA-256 of the pinned ruleset file, Python version, platform — so a number that changes later can be attributed to the models rather than to the tooling, or vice versa.
+
+### Outcome classes stay separate
+
+The project rule is that failure states are never folded into each other. One violation was found and fixed: extraction failures were being recorded with functional-test status `fail`, conflating *"the code doesn't work"* with *"there was never any code"* — and inflating RQ5's broken-code numerator with runs that produced no candidate at all. They now record `no_code`, which is excluded from RQ5's denominator and counted separately.
+
+### The engines have tests now
+
+`python -m pytest backend/test_engines.py -q` — 39 tests, ~18s (or `-m "not slow"` for the 35 that don't shell out, ~2s). They exist because the cross-tool dedup bug survived an entire pilot run and was only caught by hand-reading an audit worksheet; one assertion would have caught it on day one. Coverage: dedup (including regression tests for both cross-tool pairs, and that genuinely different findings on one line are *not* over-merged), code extraction (including the unclosed-fence truncation case), Engine A determinism and the guarantee that no dataset prompt silently gets zero warnings, repair-prompt construction, Engine D outcome classes, and the metrics predicates.
 
 ## FAQ — moved to its own file
 

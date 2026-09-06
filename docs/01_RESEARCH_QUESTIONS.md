@@ -4,6 +4,22 @@ Notation: a *run* = one (prompt, model, mode, rep). `vuln(r) = 1` if Engine B re
 medium+ finding on the final code of run r. `pass(r) = 1` if Engine D's functional tests pass.
 All rates reported with Wilson 95% confidence intervals.
 
+**Inference rules (added 2026-09-07, applied by `analysis/rq_analysis.py`):**
+
+1. **Clustering.** Repetitions are nested inside prompts — 3 reps × 50 prompts is *not* 150
+   independent observations, and Wilson intervals that assume it is are too narrow. Every
+   headline rate is additionally reported with a **cluster bootstrap over prompts** (resample
+   prompts, not runs), and the logistic model uses **standard errors clustered on `prompt_id`**.
+   Quote the clustered interval.
+2. **Multiple comparisons.** One test per model across a family of six means "at least one
+   p < 0.05" is expected under a null. Families of tests get **Benjamini–Hochberg FDR
+   correction (α = 0.05)**; the paper quotes the adjusted p. An effect that survives raw
+   p < 0.05 but not FDR is not a finding.
+3. **Sensitivity over analysis choices.** Any choice that could move a headline number is
+   reported as a range, never settled silently: which findings count (audit-flagged noise;
+   findings on model-volunteered `app.run`/`__main__` scaffolding) and how unparseable output
+   is treated (excluded / counted clean / counted vulnerable). See the validity protocol below.
+
 Generation buckets (defined in 03_METHODOLOGY): **G1** (2023–24 small open),
 **G2** (2024 mid-tier), **G3** (2025–26 current).
 
@@ -145,6 +161,18 @@ Two rules for using this table honestly:
    genuine independent samples, not near-duplicates). Per-rep variance reported;
    a result that flips across reps is reported as unstable, not cherry-picked.
 3. **Extraction failures** are their own outcome class — never counted as clean, never
-   silently dropped (v2 already did this right; keep it).
+   silently dropped (v2 already did this right; keep it). **Added 2026-09-07:** they are also
+   never counted as *functionally broken*. Engine D returns `no_code` (not `fail`) when there
+   was no code to test, because "the code does not work" and "there was never any code" are
+   different facts and folding the second into the first inflates RQ5's numerator. And because
+   the failure rate differs by model, RQ1 is reported under all three conventions
+   (excluded / counted clean / counted vulnerable) with the spread stated —
+   `extraction_sensitivity()`.
+
+3b. **Outcome-class integrity is testable, not aspirational.** `backend/test_engines.py`
+   asserts these invariants directly (no_code ≠ fail; syntactically invalid code is an
+   extraction failure rather than a clean scan; a repaired run's verdict comes from the repair
+   loop rather than the stale initial scan). The cross-tool dedup bug survived a whole pilot
+   because nothing tested the engines; that gap is now closed.
 4. **Dead-model integrity:** every API error is logged with the raw error; a cell with
    >10% llm_error is rerun or the model is dropped fleet-wide (no partial cells).

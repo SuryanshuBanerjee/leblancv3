@@ -5,6 +5,52 @@ without reading diffs.
 
 ---
 
+## 2026-09-07 (later) — research-validity pass: statistics hardened, engines tested
+
+The first pass fixed bugs and built the analysis. This one fixes the *reasoning* — every
+place a headline number depended on an unstated choice, plus the defects that pass turned up.
+
+### Statistical corrections (all automatic, all in `analysis/rq_analysis.py`)
+
+- **Clustering.** 3 repetitions × 50 prompts is not 150 independent observations, and Wilson
+  intervals that assume it is are too narrow. Every rate now also gets a **cluster bootstrap
+  over prompts**, and the logistic regression uses **standard errors clustered on prompt**.
+- **Multiple comparisons.** One test per model means "at least one p<0.05" is expected by
+  chance. Families of tests now get **Benjamini–Hochberg FDR correction**; the adjusted p is
+  what the paper quotes. (On pilot data the one significant result survives: 0.0129 → 0.0387.)
+- **Sensitivity analysis over analysis choices**, reported as a range rather than settled
+  quietly. The result is striking on pilot data: excluding audit-flagged noisy rules *and*
+  findings located in the `app.run()` scaffolding models volunteer, one model's baseline
+  vulnerability rate falls from **54.3% to 17.4%** (a 36.9pp drop). The headline number is
+  substantially a statement about Flask boilerplate. Both figures now belong in the paper.
+- **Extraction-failure convention.** Excluded from the denominator by default, but now also
+  reported counted-clean and counted-vulnerable, with the spread stated, because the failure
+  rate differs by model and the choice is not neutral.
+
+### Bugs found and fixed
+
+- **Outcome classes were being conflated.** Extraction failures were recorded with functional
+  test status `fail` — treating "there was never any code" as "the code doesn't work", and
+  inflating RQ5's broken-code numerator with runs that produced no candidate at all. They now
+  record `no_code`, excluded from RQ5's denominator and counted separately. This violated the
+  project's own honesty rule, which is the sort of thing only a test catches.
+- **`_is_vuln_final` was a convoluted predicate** whose two clauses overlapped; simplified to
+  the same truth table in a form that reads as what it means.
+- **No reproducibility provenance.** The pinned-ruleset claim was unverifiable after the fact.
+  Every run now stores Bandit/Semgrep versions, config name, a SHA-256 of the ruleset file,
+  Python version and platform, via an additive, idempotent DB migration.
+
+### The engines have tests now
+
+`backend/test_engines.py` — 39 tests, ~18s (`-m "not slow"` runs 35 of them in ~2s). They
+exist because the cross-tool dedup bug survived an entire pilot run and was caught only by
+hand-reading an audit worksheet; one assertion would have caught it the day it was written.
+Includes regression tests for both dedup pairs, a test that genuinely different findings on
+one line are *not* over-merged, the unclosed-fence truncation case, Engine A determinism, a
+guarantee that no dataset prompt silently receives zero warnings, and the metrics predicates.
+
+---
+
 ## 2026-09-07 — full-codebase review, M5 built, four bugs fixed
 
 A complete read of the codebase, all ten research PDFs, and every project doc — then everything
