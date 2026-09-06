@@ -385,6 +385,195 @@ def iterations_mannwhitney(df, g_a="G1", g_b="G3"):
             f"n_{g_a}": int(len(a)), f"n_{g_b}": int(len(b))}
 
 
+# Rule families the false-positive audit identified as systematically noisy for
+# THIS study's question (analysis/fp_audit_pilot_triage.md, 2026-09-07). They are
+# excluded only in the sensitivity analysis, never silently from the headline:
+#   B413                        Bandit cannot distinguish maintained pycryptodome from
+#                               abandoned pycrypto — both import as `Crypto`
+#   B104 / avoid_app_run_...    binding 0.0.0.0 is correct and required in a container
+#   insufficient-rsa-key-size   demands >=3072; RSA-2048 is NIST-acceptable to 2030
+NOISY_RULES = {
+    "bandit:B413",
+    "bandit:B104", "semgrep:avoid_app_run_with_bad_host",
+    "semgrep:insufficient-rsa-key-size",
+}
+
+SCAFFOLD_RE = re.compile(r"app\.run\(|if\s+__name__\s*==")
+
+
+def benjamini_hochberg(pvals, alpha=0.05):
+    """FDR correction over a family of tests.
+
+    We run one McNemar per model for RQ2 and a Fisher per cell for RQ4. With six
+    models and a dozen category cells, the chance of at least one p < 0.05 arising
+    from nothing is substantial, and reporting the surviving one as "significant"
+    is the oldest mistake in applied statistics. Benjamini-Hochberg controls the
+    false-discovery rate across the family and is the right instrument here (less
+    brutal than Bonferroni, which would cost us real effects at this sample size).
+
+    Returns (adjusted_pvals, rejected_flags) aligned with the input order; None
+    entries pass through untouched.
+    """
+    idx = [i for i, p in enumerate(pvals) if p is not None]
+    if not idx:
+        return list(pvals), [False] * len(pvals)
+    m = len(idx)
+    ordered = sorted(idx, key=lambda i: pvals[i])
+    adj = list(pvals)
+    prev = 1.0
+    for rank, i in enumerate(reversed(ordered), start=1):
+        k = m - rank + 1
+        val = min(prev, pvals[i] * m / k)
+        adj[i] = round(min(1.0, val), 4)
+        prev = val
+    return adj, [adj[i] is not None and adj[i] < alpha if i in idx else False
+                 for i in range(len(pvals))]
+
+
+def cluster_bootstrap_ci(df, value_col, n_boot=2000, seed=20260907):
+    """95% CI that respects the fact that repetitions are nested inside prompts.
+
+    Wilson intervals assume independent observations. Ours are not: 3 repetitions
+    of the same prompt are 3 looks at the same task, so the effective sample size
+    is closer to the 50 prompts than to the 150 runs. Treating them as independent
+    makes every interval too narrow and every p-value too small — a real
+    overstatement of confidence, and exactly the kind of thing a methods reviewer
+    checks for. Resampling whole PROMPTS (not runs) with replacement gives an
+    interval that carries the clustering honestly.
+    """
+    if df.empty:
+        return None, None, None
+    rng = np.random.default_rng(seed)
+    prompts = df["prompt_id"].unique()
+    groups = {p: df.loc[df["prompt_id"] == p, value_col].to_numpy() for p in prompts}
+    point = float(df[value_col].mean()) * 100
+    boots = np.empty(n_boot)
+    for b in range(n_boot):
+        pick = rng.choice(prompts, size=len(prompts), replace=True)
+        vals = np.concatenate([groups[p] for p in pick])
+        boots[b] = vals.mean()
+    lo, hi = np.percentile(boots, [2.5, 97.5]) * 100
+    return round(point, 1), round(float(lo), 1), round(float(hi), 1)
+
+
+def clustered_rates(df):
+    """Per-model baseline vulnerability rate with prompt-clustered CIs, next to
+    the naive Wilson interval, so the difference is visible rather than assumed
+    away."""
+    out = {}
+    plain = df[(df["mode"] == "plain") & df["valid"]]
+    for m, sub in plain.groupby("model"):
+        k = int(sub["vuln_initial"].sum())
+        n = int(len(sub))
+        w_rate, w_lo, w_hi = wilson_ci(k, n)
+        c_rate, c_lo, c_hi = cluster_bootstrap_ci(sub.assign(v=sub["vuln_initial"].astype(int)), "v")
+        naive_w = None if None in (w_lo, w_hi) else round(w_hi - w_lo, 1)
+        clust_w = None if None in (c_lo, c_hi) else round(c_hi - c_lo, 1)
+        out[m] = {
+            "n_runs": n, "n_prompts": int(sub["prompt_id"].nunique()),
+            "rate": w_rate,
+            "wilson_ci": [w_lo, w_hi], "wilson_width_pp": naive_w,
+            "cluster_bootstrap_ci": [c_lo, c_hi], "cluster_width_pp": clust_w,
+            "widening_pp": None if None in (naive_w, clust_w) else round(clust_w - naive_w, 1),
+        }
+    return {"per_model": out,
+            "reading": "cluster_bootstrap_ci is the honest interval; wilson_ci assumes the "
+                       "repetitions are independent observations, which they are not. If the "
+                       "widening is large, quote the clustered interval in the paper."}
+
+
+def extraction_sensitivity(df):
+    """How much does the treatment of extraction failures move RQ1?
+
+    Extraction failures are excluded from the vulnerability-rate denominator (a
+    model that emitted unparseable text produced no code to judge). That is
+    defensible, but it is a CHOICE, and it is not neutral when the failure rate
+    differs sharply by model: in the pilot, gemini-2.5-flash failed extraction on
+    ~31% of runs against ~3% for the gpt-oss pair, so it is being graded on the
+    subset of its output that parsed. If parseability correlates with task
+    difficulty, that flatters it.
+
+    So report all three conventions and let the reader see the spread:
+      excluded          — the headline convention
+      counted_clean     — most generous to the failing model
+      counted_vulnerable— most punitive
+    """
+    out = {}
+    for m, sub in df[df["mode"] == "plain"].groupby("model"):
+        ef = sub[sub["final_status"] == "extraction_failed"]
+        valid = sub[sub["valid"]]
+        k, n = int(valid["vuln_initial"].sum()), int(len(valid))
+        n_all = int(len(sub))
+        out[m] = {
+            "extraction_failures": int(len(ef)),
+            "extraction_failure_pct": round(len(ef) / n_all * 100, 1) if n_all else None,
+            "vr_excluded": wilson_ci(k, n)[0],
+            "vr_failures_counted_clean": wilson_ci(k, n_all)[0],
+            "vr_failures_counted_vulnerable": wilson_ci(k + len(ef), n_all)[0],
+        }
+    spread = [v["vr_failures_counted_vulnerable"] - v["vr_excluded"]
+              for v in out.values()
+              if None not in (v["vr_failures_counted_vulnerable"], v["vr_excluded"])]
+    return {"per_model": out,
+            "max_spread_pp": round(max(spread), 1) if spread else None,
+            "reading": "If max_spread_pp is large, RQ1's model ordering depends on a "
+                       "methodological choice rather than on the models, and the paper must "
+                       "report the ordering under all three conventions."}
+
+
+def rule_sensitivity(df):
+    """Vulnerability rate recomputed with the noisy and scaffolding findings removed.
+
+    Two independent problems, deliberately separated:
+      NOISY   — rules the FP audit judged wrong for our question (false positives)
+      SCAFFOLD— findings on `app.run(...)` / `__main__` lines: real weaknesses, but
+                in the demo runner the model volunteers, not in the function that
+                was requested. Whether they count is a question about what the
+                study measures, not about whether the analyser was right.
+    """
+    runs = {r["id"]: r for r in get_all_runs()}
+    variants = {"headline": 0, "excl_noisy": 0, "excl_scaffold": 0, "excl_both": 0}
+    per_model = {}
+    for _, row in df[(df["mode"] == "plain") & df["valid"]].iterrows():
+        r = runs.get(row["id"])
+        if r is None:
+            continue
+        code = (r.get("clean_code") or "").split("\n")
+        keeps = {k: False for k in variants}
+        for f in (r.get("scan_results") or []):
+            rule = f"{f.get('tool')}:{f.get('rule')}"
+            ln = f.get("line", 0) or 0
+            line_txt = code[ln - 1] if 0 < ln <= len(code) else ""
+            noisy = any(part in NOISY_RULES
+                        for part in [rule] + [f"{t}:{f.get('rule')}"
+                                              for t in str(f.get("tool", "")).split("+")])
+            scaffold = bool(SCAFFOLD_RE.search(line_txt))
+            keeps["headline"] = True
+            if not noisy:
+                keeps["excl_noisy"] = True
+            if not scaffold:
+                keeps["excl_scaffold"] = True
+            if not noisy and not scaffold:
+                keeps["excl_both"] = True
+        d = per_model.setdefault(row["model"], {k: [0, 0] for k in variants})
+        for k in variants:
+            d[k][1] += 1
+            if keeps[k]:
+                d[k][0] += 1
+
+    out = {}
+    for m, d in per_model.items():
+        out[m] = {k: {"vulnerable": kk, "n": nn, "rate": wilson_ci(kk, nn)[0]}
+                  for k, (kk, nn) in d.items()}
+        base = out[m]["headline"]["rate"]
+        both = out[m]["excl_both"]["rate"]
+        out[m]["drop_pp"] = None if None in (base, both) else round(base - both, 1)
+    return {"per_model": out, "noisy_rules_excluded": sorted(NOISY_RULES),
+            "reading": "excl_both is the conservative rate: only findings that are neither "
+                       "audit-flagged noise nor located in volunteered scaffolding. If it is "
+                       "far below the headline, say so in the abstract, not just in Threats."}
+
+
 def finding_composition(limit=10):
     """What is the vulnerability rate actually made of?
 
@@ -419,7 +608,7 @@ def finding_composition(limit=10):
         "top3_share_pct": round(sum(v for _, v in by_rule.most_common(3)) / total * 100, 1),
         "on_scaffolding_lines": scaffold_n,
         "on_scaffolding_pct": round(scaffold_n / total * 100, 1),
-        "reading": "findings on app.run()/__main__ scaffolding are weaknesses in code the "
+        "reading": "Findings on app.run()/__main__ scaffolding are weaknesses in code the "
                    "model volunteered, not in the function the prompt asked for. Report "
                    "them, but say which they are — a reviewer will ask.",
     }
@@ -435,7 +624,18 @@ def logistic_model(df):
         return {"fitted": False, "note": "outcome has no variance (all runs identical)"}
     try:
         import statsmodels.formula.api as smf
-        fit = smf.logit("y ~ C(mode) * C(generation) + C(category)", data=sub).fit(disp=False)
+        # Cluster-robust by prompt: the 3 repetitions of a prompt are not three
+        # independent draws, and default standard errors would treat them as such,
+        # producing p-values that are too small. Falls back to classical SEs only
+        # if the clustered fit fails, and says which was used.
+        cov = {"cov_type": "cluster", "cov_kwds": {"groups": sub["prompt_id"]}}
+        try:
+            fit = smf.logit("y ~ C(mode) * C(generation) + C(category)",
+                            data=sub).fit(disp=False, **cov)
+            se_kind = "cluster-robust by prompt_id"
+        except Exception:
+            fit = smf.logit("y ~ C(mode) * C(generation) + C(category)", data=sub).fit(disp=False)
+            se_kind = "classical (clustered fit failed — treat p-values as optimistic)"
         # A logit that hit the iteration limit still returns coefficients — they are
         # just not trustworthy (usually perfect separation from sparse cells, i.e.
         # some mode/generation/category combination is all-vulnerable or all-clean).
@@ -449,6 +649,8 @@ def logistic_model(df):
                             "coefficients.",
                     "n": int(fit.nobs)}
         return {"fitted": True, "converged": True, "n": int(fit.nobs),
+                "standard_errors": se_kind,
+                "n_clusters": int(sub["prompt_id"].nunique()),
                 "pseudo_r2": round(float(fit.prsquared), 4),
                 "coefficients": {k: round(float(v), 4) for k, v in fit.params.items()},
                 "p_values": {k: round(float(v), 4) for k, v in fit.pvalues.items()},
@@ -556,7 +758,7 @@ def _table(headers, rows, title):
     return "\n".join(md) + "\n", "\n".join(tex) + "\n"
 
 
-def write_tables(m, outdir):
+def write_tables(m, outdir, tests=None):
     t = os.path.join(outdir, "tables")
     specs = []
 
@@ -600,6 +802,24 @@ def write_tables(m, outdir):
     specs.append(("rq5", ["Model", "Gen", "Repair claims", "Tested", "Broken", "RIR (%)",
                           "95% CI", "Untested"], rows,
                   "RQ5 --- repair inflation: scanner-clean but functionally broken"))
+
+    # Sensitivity table — belongs in the paper, not only in the readout, because it
+    # is the honest range around the headline rather than a footnote about it.
+    if tests and tests.get("sensitivity_rules", {}).get("per_model"):
+        rows = []
+        rsm = tests["sensitivity_rules"]["per_model"]
+        exm = tests["sensitivity_extraction"]["per_model"]
+        clm = tests["sensitivity_clustering"]["per_model"]
+        for mm in rsm:
+            v, e, c = rsm[mm], exm.get(mm, {}), clm.get(mm, {})
+            rows.append([mm, v["headline"]["rate"], v["excl_noisy"]["rate"],
+                         v["excl_scaffold"]["rate"], v["excl_both"]["rate"],
+                         e.get("vr_failures_counted_vulnerable"),
+                         str(c.get("cluster_bootstrap_ci", "--"))])
+        specs.append(("sensitivity",
+                      ["Model", "Headline VR (%)", "Excl. noisy (%)", "Excl. scaffold (%)",
+                       "Excl. both (%)", "Extr. counted vuln (%)", "Cluster CI"], rows,
+                      "Sensitivity of the baseline vulnerability rate to analysis choices"))
 
     written = []
     for key, headers, rows, title in specs:
@@ -741,6 +961,55 @@ def build_summary(m, df, tests, figs):
         L += [f"| `{r['rule']}` | {r['n']} | {r['pct']}% |" for r in fc["top_rules"]]
         L += ["", f"> {fc['reading']}", ""]
 
+    # ---- sensitivity analyses: where do the headline numbers depend on a choice?
+    L += ["## Sensitivity — does the headline survive its own assumptions?", "",
+          "Each block below re-computes a headline number under a different defensible "
+          "choice. Where the answer moves a lot, the paper must report the range, not "
+          "just the convenient end of it.", ""]
+
+    cl = tests["sensitivity_clustering"]["per_model"]
+    if cl:
+        L += ["**Clustering — repetitions are not independent observations.**", "",
+              "| model | runs | prompts | rate | Wilson CI (naive) | cluster-bootstrap CI | widening |",
+              "|---|---:|---:|---:|---|---|---:|"]
+        for mm, v in cl.items():
+            widening = "—" if v["widening_pp"] is None else f"{v['widening_pp']:+}pp"
+            L.append(f"| {mm} | {v['n_runs']} | {v['n_prompts']} | {v['rate']}% | "
+                     f"{v['wilson_ci']} | {v['cluster_bootstrap_ci']} | {widening} |")
+        L += ["", f"> {tests['sensitivity_clustering']['reading']}", ""]
+
+    ex = tests["sensitivity_extraction"]
+    if ex["per_model"]:
+        L += ["**Extraction failures — excluded, or counted which way?**", "",
+              "| model | extraction failures | VR (excluded) | VR (counted clean) | VR (counted vulnerable) |",
+              "|---|---:|---:|---:|---:|"]
+        for mm, v in ex["per_model"].items():
+            L.append(f"| {mm} | {v['extraction_failures']} ({v['extraction_failure_pct']}%) | "
+                     f"{v['vr_excluded']}% | {v['vr_failures_counted_clean']}% | "
+                     f"{v['vr_failures_counted_vulnerable']}% |")
+        L += ["", f"Widest single-model spread: **{ex['max_spread_pp']}pp**. {ex['reading']}", ""]
+
+    rs = tests["sensitivity_rules"]
+    if rs["per_model"]:
+        L += ["**Which findings count — audit noise and volunteered scaffolding.**", "",
+              "| model | headline VR | excl. noisy rules | excl. scaffolding | excl. both | drop |",
+              "|---|---:|---:|---:|---:|---:|"]
+        for mm, v in rs["per_model"].items():
+            L.append(f"| {mm} | {v['headline']['rate']}% | {v['excl_noisy']['rate']}% | "
+                     f"{v['excl_scaffold']['rate']}% | {v['excl_both']['rate']}% | "
+                     f"{'—' if v['drop_pp'] is None else str(v['drop_pp']) + 'pp'} |")
+        L += ["", f"> {rs['reading']}", "",
+              f"> Noisy rules excluded: `{'`, `'.join(rs['noisy_rules_excluded'])}`", ""]
+
+    mc = tests.get("multiple_comparisons")
+    if mc and mc["n_tests"]:
+        L += ["**Multiple comparisons.** " + mc["method"] +
+              f" over {mc['n_tests']} tests ({mc['family']}).", "",
+              "| model | raw p | FDR-adjusted p |", "|---|---:|---:|"]
+        for mm in mc["raw_p"]:
+            L.append(f"| {mm} | {mc['raw_p'][mm]} | {mc['adjusted_p'][mm]} |")
+        L += ["", f"> {mc['reading']}", ""]
+
     lm = tests["logistic_model"]
     L += ["## Headline regression — `vuln ~ mode * generation + category`", ""]
     if lm.get("fitted"):
@@ -785,11 +1054,34 @@ def main():
         "rq5_repair_attribution": repair_attribution(df),
         "finding_composition": finding_composition(),
         "logistic_model": logistic_model(df),
+        # Sensitivity analyses — every one of these exists because a headline
+        # number depends on a methodological choice, and the choice should be
+        # visible rather than buried.
+        "sensitivity_clustering": clustered_rates(df),
+        "sensitivity_extraction": extraction_sensitivity(df),
+        "sensitivity_rules": rule_sensitivity(df),
+    }
+
+    # Multiple-comparison correction across the RQ2 family (one McNemar per model).
+    rq2_models = list(m["rq2"]["per_model"])
+    raw_p = [m["rq2"]["per_model"][k]["mcnemar_p"] for k in rq2_models]
+    adj_p, rejected = benjamini_hochberg(raw_p)
+    for k, p_adj, rej in zip(rq2_models, adj_p, rejected):
+        m["rq2"]["per_model"][k]["mcnemar_p_fdr"] = p_adj
+        m["rq2"]["per_model"][k]["significant_after_fdr"] = bool(rej)
+    tests["multiple_comparisons"] = {
+        "family": "RQ2 McNemar, one test per model",
+        "method": "Benjamini-Hochberg FDR, alpha=0.05",
+        "n_tests": len([p for p in raw_p if p is not None]),
+        "raw_p": dict(zip(rq2_models, raw_p)),
+        "adjusted_p": dict(zip(rq2_models, adj_p)),
+        "reading": "Quote the adjusted p in the paper. An effect that survives raw "
+                   "p<0.05 but not FDR is not a finding, it is a coin that came up heads.",
     }
 
     figs = [fig_rq1(m, outdir), fig_rq2(m, outdir), fig_rq3(m, outdir),
             fig_rq4(m, outdir), fig_rq5(m, outdir), fig_outcomes(df, outdir)]
-    tables = write_tables(m, outdir)
+    tables = write_tables(m, outdir, tests)
 
     payload = {"metrics": m, "tests": {k: {kk: vv for kk, vv in v.items() if kk != "summary_text"}
                                        for k, v in tests.items()},
