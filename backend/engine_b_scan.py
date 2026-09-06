@@ -51,7 +51,7 @@ def run_bandit(filepath):
     try:
         result = subprocess.run(
             ["python", "-m", "bandit", "-q", "-f", "json", "-ll", filepath],
-            capture_output=True, text=True, timeout=60,
+            capture_output=True, text=True, timeout=60, stdin=subprocess.DEVNULL,
         )
         data = json.loads(result.stdout) if result.stdout.strip() else {}
         for r in data.get("results", []):
@@ -81,7 +81,7 @@ def run_semgrep(filepath):
         result = subprocess.run(
             [SEMGREP_BIN, "scan", "--config", SEMGREP_CONFIG, "--json",
              "--quiet", "--disable-version-check", "--metrics", "off", filepath],
-            capture_output=True, text=True, timeout=SEMGREP_TIMEOUT,
+            capture_output=True, text=True, timeout=SEMGREP_TIMEOUT, stdin=subprocess.DEVNULL,
         )
         data = json.loads(result.stdout) if result.stdout.strip() else {}
         # Surface config/rule errors instead of pretending the scan was clean.
@@ -119,6 +119,74 @@ def run_semgrep(filepath):
         return None
 
 
+# Cross-tool rule equivalences: the SAME underlying weakness that Bandit and
+# Semgrep both detect but map to different CWEs, which made the old
+# (line, cwe-set) / (line, rule) dedup miss them entirely — a Flask
+# `app.run(debug=True)` was counted twice (Bandit B201 -> CWE-94, Semgrep
+# debug-enabled -> CWE-489), and so was `host="0.0.0.0"` (B104 -> CWE-605,
+# avoid_app_run_with_bad_host -> CWE-668). Found 2026-09-07 during the
+# false-positive audit: those two pairs alone accounted for 180 of 291 findings
+# in the pilot database, i.e. the raw finding COUNT was inflated roughly 1.6x.
+# (The binary vuln = count > 0 verdict, and therefore RQ1-RQ4, are unaffected —
+# but any per-finding statistic computed before this fix is not comparable with
+# one computed after it. Pilot data pre-dates the fix; see docs/03_METHODOLOGY.md.)
+CROSS_TOOL_EQUIVALENT = {
+    "B201": "flask-debug-true", "debug-enabled": "flask-debug-true",
+    "B104": "bind-all-interfaces", "avoid_app_run_with_bad_host": "bind-all-interfaces",
+    "B105": "hardcoded-secret", "generic-api-key": "hardcoded-secret",
+    "B303": "weak-hash", "insecure-hash-algorithm-md5": "weak-hash",
+    "B324": "weak-hash", "insecure-hash-function": "weak-hash",
+}
+
+_SEV_RANK = {"CRITICAL": 4, "ERROR": 3, "HIGH": 3, "MEDIUM": 2, "WARNING": 2, "LOW": 1,
+             "UNKNOWN": 0}
+
+
+def dedupe_findings(findings, file_key=None):
+    """Merge duplicate findings, including the SAME issue reported by both tools.
+
+    Three keys, in order of confidence:
+      1. (file, line, canonical-issue)  — known cross-tool equivalences, the fix for
+                                          the double-counting described above
+      2. (file, line, cwe-set)          — both tools agreed on the CWE
+      3. (file, line, rule)             — the same rule firing twice
+
+    When two findings merge, we keep the higher severity, union the CWE lists, and
+    record both tool names (e.g. "bandit+semgrep") so the audit trail still shows
+    that two independent analysers agreed — that agreement is evidence, and
+    throwing it away would be a different kind of dishonesty than double-counting.
+    """
+    merged = {}
+    order = []
+    for fd in findings:
+        fkey = os.path.normpath(fd.get("file", "")) if file_key else ""
+        canon = CROSS_TOOL_EQUIVALENT.get(fd.get("rule", ""))
+        keys = [(fkey, fd["line"], f"canon:{canon}")] if canon else []
+        keys.append((fkey, fd["line"], "cwes:" + ",".join(sorted(fd.get("cwes") or []))))
+        keys.append((fkey, fd["line"], "rule:" + str(fd.get("rule"))))
+
+        hit = next((k for k in keys if k in merged), None)
+        if hit is None:
+            slot = dict(fd)
+            for k in keys:
+                merged[k] = slot
+            order.append(slot)
+            continue
+
+        slot = merged[hit]
+        # union the evidence rather than discarding the second detection
+        tools = sorted(set(str(slot.get("tool", "")).split("+")) |
+                       {str(fd.get("tool", ""))} - {""})
+        slot["tool"] = "+".join(t for t in tools if t)
+        slot["cwes"] = sorted(set(slot.get("cwes") or []) | set(fd.get("cwes") or []))
+        if _SEV_RANK.get(str(fd.get("severity", "")).upper(), 0) > \
+           _SEV_RANK.get(str(slot.get("severity", "")).upper(), 0):
+            slot["severity"] = fd["severity"]
+        for k in keys:
+            merged.setdefault(k, slot)
+    return order
+
+
 def scan_code(code_string):
     """
     Returns (findings, clean_code, scanners_used).
@@ -147,17 +215,7 @@ def scan_code(code_string):
             scanners.append("semgrep")
             findings.extend(sg)
 
-        # dedup: same line + same CWE set (cross-tool), then same line + rule
-        seen, deduped = set(), []
-        for fd in findings:
-            key = (fd["line"], tuple(sorted(fd["cwes"])))
-            key2 = (fd["line"], fd["rule"])
-            if key in seen or key2 in seen:
-                continue
-            seen.add(key)
-            seen.add(key2)
-            deduped.append(fd)
-        return deduped, clean_code, scanners
+        return dedupe_findings(findings), clean_code, scanners
     finally:
         if os.path.exists(filepath):
             os.unlink(filepath)
@@ -168,7 +226,7 @@ def _bandit_path(path):
     try:
         result = subprocess.run(
             ["python", "-m", "bandit", "-q", "-f", "json", "-ll", "-r", path],
-            capture_output=True, text=True, timeout=180,
+            capture_output=True, text=True, timeout=180, stdin=subprocess.DEVNULL,
         )
         data = json.loads(result.stdout) if result.stdout.strip() else {}
         for r in data.get("results", []):
@@ -196,7 +254,7 @@ def _semgrep_path(path):
         result = subprocess.run(
             [SEMGREP_BIN, "scan", "--config", SEMGREP_CONFIG, "--json",
              "--quiet", "--disable-version-check", "--metrics", "off", path],
-            capture_output=True, text=True, timeout=max(SEMGREP_TIMEOUT, 300),
+            capture_output=True, text=True, timeout=max(SEMGREP_TIMEOUT, 300), stdin=subprocess.DEVNULL,
         )
         data = json.loads(result.stdout) if result.stdout.strip() else {}
         if data.get("errors"):
@@ -243,17 +301,8 @@ def scan_path(path, max_files=500):
         scanners.append("semgrep")
         findings.extend(sg)
 
-    # dedup per file: (file, line, cwe-set) then (file, line, rule)
-    seen, deduped = set(), []
-    for fd in findings:
-        fkey = os.path.normpath(fd.get("file", ""))
-        key = (fkey, fd["line"], tuple(sorted(fd["cwes"])))
-        key2 = (fkey, fd["line"], fd["rule"])
-        if key in seen or key2 in seen:
-            continue
-        seen.add(key)
-        seen.add(key2)
-        deduped.append(fd)
+    # same three-key merge as scan_code(), but keyed per file as well
+    deduped = dedupe_findings(findings, file_key=True)
 
     by_file = {}
     for fd in deduped:
