@@ -11,6 +11,14 @@ flask
 flask-cors
 mcp               # MCP server (backend/mcp_server.py) — FastMCP lives here
 
+# Analysis layer (analysis/rq_analysis.py, analysis/fp_audit.py) — free, offline.
+# Needed to turn the run database into the paper's figures, tables and statistics.
+pandas
+numpy
+scipy             # chi-square, Fisher exact, Mann-Whitney U
+statsmodels       # logistic regression: vuln ~ mode * generation + category
+matplotlib        # the six paper figures
+
 # Optional — install to widen RQ5 functional coverage (see dataset/tests/MANIFEST.md):
 #   pycryptodome    # enables S018/S019 (RSA/DSA key-gen tests)
 #   defusedxml      # stronger S037 reference (hardened XML parsing)
