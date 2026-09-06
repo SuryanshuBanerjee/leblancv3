@@ -9,7 +9,26 @@ Register with Claude Code:
 
 Free tools (no API spend): analyze_prompt, scan_code, audit_llm_response, project_status
 Spending tools (clearly marked): repair_code — makes LLM API calls.
+
+--- Why every tool below is `async def` + `asyncio.to_thread(...)` ---
+FastMCP (mcp==1.23.3, mcp/server/fastmcp/utilities/func_metadata.py,
+`call_fn_with_arg_validation`) calls a *synchronous* tool function directly on
+the same asyncio event-loop thread that runs the stdio read/write loop:
+    if fn_is_async: return await fn(**args)
+    else:           return fn(**args)          # <- no threadpool offload
+There is no `anyio.to_thread.run_sync` in that else-branch. A plain `def` tool
+that shells out to Bandit/Semgrep (`subprocess.run`, seconds of wall-clock) or
+calls an LLM API (network I/O) blocks that single event loop for the whole
+call — the server can't service the stdio transport meanwhile, which reads
+back to the client as a hang (confirmed in-session: a fresh, standalone
+`mcp_server.py` process hung on `scan_code` for the full 60s timeout via the
+real MCP protocol, while calling the same function directly in Python
+returned in <0.3s; `analyze_prompt`, which touches no subprocess, returned in
+0.01s through the identical protocol path). Making the tool `async def` and
+running the actual blocking work inside `asyncio.to_thread(...)` moves it off
+the loop thread, so the server stays responsive during a scan or repair call.
 """
+import asyncio
 import json
 import sys
 import os
@@ -30,12 +49,16 @@ mcp = FastMCP(
 
 
 @mcp.tool()
-def analyze_prompt(prompt: str) -> str:
+async def analyze_prompt(prompt: str) -> str:
     """Analyze a coding request for security risk BEFORE code generation.
     Returns the CWEs it likely touches (with retrieval evidence) and an enriched
     version of the prompt containing security warnings. Free — no API calls."""
     from engine_a_enrich import enrich_prompt
-    enriched, cwes, keywords, details = enrich_prompt(prompt)
+
+    def _run():
+        return enrich_prompt(prompt)
+
+    enriched, cwes, keywords, details = await asyncio.to_thread(_run)
     return json.dumps({
         "matched_cwes": cwes,
         "evidence": details,
@@ -44,13 +67,13 @@ def analyze_prompt(prompt: str) -> str:
 
 
 @mcp.tool()
-def scan_code(code: str) -> str:
+async def scan_code(code: str) -> str:
     """Statically scan Python code for security vulnerabilities using Bandit ∪ Semgrep
     (medium+ severity, CWE-mapped, deduplicated). Accepts raw code or a fenced
     ```python``` block. Free — no API calls."""
     from engine_b_scan import scan_code as _scan
     payload = code if "```" in code else f"```python\n{code}\n```"
-    findings, clean, scanners = _scan(payload)
+    findings, clean, scanners = await asyncio.to_thread(_scan, payload)
     if not clean:
         return json.dumps({"error": "extraction_or_syntax_failed",
                            "hint": "code must be valid Python"})
@@ -63,14 +86,14 @@ def scan_code(code: str) -> str:
 
 
 @mcp.tool()
-def scan_path(path: str, max_findings: int = 100) -> str:
+async def scan_path(path: str, max_findings: int = 100) -> str:
     """Scan a real FILE or DIRECTORY (recursively) on disk for security issues using
     Bandit ∪ Semgrep — the codebase-scale version of scan_code. Use this to audit an
     existing project or a file the model just wrote to disk. Returns per-file findings
     and a per-file count. Free — no API calls. (scan_code is for a single in-memory
     snippet; scan_path is for actual paths / whole repos.)"""
     from engine_b_scan import scan_path as _scan_path
-    res = _scan_path(path)
+    res = await asyncio.to_thread(_scan_path, path)
     if not res.get("ok"):
         return json.dumps(res)
     res["findings"] = res["findings"][:max_findings]
@@ -79,12 +102,12 @@ def scan_path(path: str, max_findings: int = 100) -> str:
 
 
 @mcp.tool()
-def audit_llm_response(response_text: str) -> str:
+async def audit_llm_response(response_text: str) -> str:
     """Audit a raw LLM response: extract the ```python``` block, validate syntax,
     scan it, and report findings by category. Ideal as a post-generation gate in
     an agent loop. Free — no API calls."""
     from engine_b_scan import scan_code as _scan
-    findings, clean, scanners = _scan(response_text)
+    findings, clean, scanners = await asyncio.to_thread(_scan, response_text)
     if not clean:
         return json.dumps({"verdict": "extraction_failed",
                            "hint": "no valid ```python``` block found"})
@@ -101,7 +124,7 @@ def audit_llm_response(response_text: str) -> str:
 
 
 @mcp.tool()
-def repair_code(code: str, model: str = "gpt-oss-120b") -> str:
+async def repair_code(code: str, model: str = "gpt-oss-120b") -> str:
     """Repair vulnerable Python code via LeBlanc's iterative loop: scan -> send
     findings to the LLM -> re-scan, up to 3 rounds. ⚠️ SPENDS API TOKENS (1-3 LLM
     calls on the chosen model; default is a free-tier Groq model).
@@ -110,12 +133,12 @@ def repair_code(code: str, model: str = "gpt-oss-120b") -> str:
     from engine_b_scan import scan_code as _scan
     from engine_c_repair import repair_loop
     payload = code if "```" in code else f"```python\n{code}\n```"
-    findings, clean, scanners = _scan(payload)
+    findings, clean, scanners = await asyncio.to_thread(_scan, payload)
     if not clean:
         return json.dumps({"error": "extraction_or_syntax_failed"})
     if not findings:
         return json.dumps({"verdict": "already_clean", "code": clean})
-    rr = repair_loop(clean, findings, model)
+    rr = await asyncio.to_thread(repair_loop, clean, findings, model)
     return json.dumps({
         "verdict": rr["final_status"],
         "iterations": [
@@ -127,11 +150,11 @@ def repair_code(code: str, model: str = "gpt-oss-120b") -> str:
 
 
 @mcp.tool()
-def project_status() -> str:
+async def project_status() -> str:
     """LeBlanc experiment status: run counts, completeness, per-RQ data sufficiency.
     Free — reads the local database only."""
     from metrics import compute_all
-    m = compute_all()
+    m = await asyncio.to_thread(compute_all)
     return json.dumps({
         "summary": m["summary"],
         "rq_ready": {k: (not m[k]["insufficient"]) for k in ("rq1", "rq2", "rq3", "rq4", "rq5")},

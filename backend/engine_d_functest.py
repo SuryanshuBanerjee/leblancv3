@@ -56,6 +56,7 @@ def run_functional_tests(prompt_id, final_code):
             [sys.executable, "-m", "pytest", "-x", "-q", "--no-header",
              "-p", "no:cacheprovider", "test_solution.py"],
             cwd=sandbox, env=env, capture_output=True, text=True, timeout=HARD_TIMEOUT,
+            stdin=subprocess.DEVNULL,
         )
         out = (result.stdout or "") + (result.stderr or "")
         status = "pass" if result.returncode == 0 else "fail"
